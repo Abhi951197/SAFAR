@@ -1,8 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
-import '../config/app_config.dart';
 
 class AuthService {
   final _client = Supabase.instance.client;
@@ -35,38 +32,14 @@ class AuthService {
   }
 
   Future<void> signInWithGoogle() async {
-    if (kIsWeb) {
-      await _client.auth.signInWithOAuth(
-        OAuthProvider.google,
-        redirectTo: Uri.base.origin,
-      );
-      return;
-    }
-
-    final googleSignIn = GoogleSignIn(
-      serverClientId: AppConfig.googleWebClientId,
-      scopes: const ['email'],
-    );
-    final googleUser = await googleSignIn.signIn();
-    if (googleUser == null) return;
-
-    final googleAuth = await googleUser.authentication;
-    final idToken = googleAuth.idToken;
-    if (idToken == null) {
-      throw const AuthException('Google did not return an ID token.');
-    }
-
-    await _client.auth.signInWithIdToken(
-      provider: OAuthProvider.google,
-      idToken: idToken,
-      accessToken: googleAuth.accessToken,
+    await _client.auth.signInWithOAuth(
+      OAuthProvider.google,
+      redirectTo: kIsWeb ? Uri.base.origin : 'safar://login-callback',
+      queryParams: kIsWeb ? null : {'access_type': 'offline', 'prompt': 'consent'},
     );
   }
 
   Future<void> signOut() async {
-    if (!kIsWeb) {
-      await GoogleSignIn(serverClientId: AppConfig.googleWebClientId).signOut();
-    }
     await _client.auth.signOut();
   }
 }
