@@ -1,0 +1,49 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "mobile/**"
+      - ".github/workflows/build-android-apk.yml"
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Build release APK
+        working-directory: mobile
+        run: >
+          flutter build apk --release
+          --dart-define=SUPABASE_URL=https://aqgtfiuwdbywqhcjevfo.supabase.co
+          --dart-define=SUPABASE_ANON_KEY=sb_publishable_9b9sQrbZz84YbARHaOuzPQ_JjiYJPm_
+          --dart-define=GOOGLE_WEB_CLIENT_ID=33551217855-eo6g9c37peqhimofdk6ulcoh6tqsfj89.apps.googleusercontent.com
+          --dart-define=API_BASE_URL=https://safar-hyez.onrender.com
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: safar-release-apk
+          path: mobile/build/app/outputs/flutter-apk/app-release.apk
