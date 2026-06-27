@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../models/diary_entry.dart';
 import '../services/diary_repository.dart';
@@ -8,24 +9,40 @@ import '../widgets/entry_card.dart';
 import '../widgets/state_views.dart';
 import 'entry_detail_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({required this.repository, super.key});
 
   final DiaryRepository repository;
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final _search = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return AppScaffold(
       padding: EdgeInsets.zero,
       child: AnimatedBuilder(
-        animation: repository,
+        animation: widget.repository,
         builder: (context, _) {
-          final entries = repository.entries;
+          final entries = _filterEntries(widget.repository.entries);
           final name = _displayName();
-          final isInitialLoading = !repository.isHydrated && repository.isRefreshing && entries.isEmpty;
+          final isInitialLoading = !widget.repository.isHydrated &&
+              widget.repository.isRefreshing &&
+              widget.repository.entries.isEmpty;
 
           return RefreshIndicator(
-            onRefresh: () => repository.refreshAll(),
+            onRefresh: () => widget.repository.refreshAll(),
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 22, 20, 96),
               children: [
@@ -37,9 +54,20 @@ class HomeScreen extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Hi, $name', maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900)),
+                          Text('Hi, $name',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .headlineSmall
+                                  ?.copyWith(fontWeight: FontWeight.w900)),
                           const SizedBox(height: 2),
-                          Text(repository.isRefreshing ? 'Syncing your journey...' : 'Good to see you again', style: const TextStyle(color: AppTheme.textSecondary)),
+                          Text(
+                              widget.repository.isRefreshing
+                                  ? 'Syncing your journey...'
+                                  : 'Good to see you again',
+                              style: const TextStyle(
+                                  color: AppTheme.textSecondary)),
                         ],
                       ),
                     ),
@@ -49,26 +77,46 @@ class HomeScreen extends StatelessWidget {
                 const SafarHeroImage(height: 190),
                 const SizedBox(height: 18),
                 TextField(
-                  enabled: false,
+                  controller: _search,
+                  onChanged: (value) =>
+                      setState(() => _query = value.trim().toLowerCase()),
                   decoration: InputDecoration(
                     hintText: 'Search entries...',
                     prefixIcon: const Icon(Icons.search),
-                    suffixIcon: Container(
-                      margin: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(color: AppTheme.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-                      child: const Icon(Icons.lock_clock, color: AppTheme.primary),
-                    ),
+                    suffixIcon: _query.isEmpty
+                        ? null
+                        : IconButton(
+                            icon: const Icon(Icons.close),
+                            tooltip: 'Clear search',
+                            onPressed: () => setState(() {
+                              _search.clear();
+                              _query = '';
+                            }),
+                          ),
                   ),
                 ),
                 const SizedBox(height: 18),
                 const SectionTitle('Today'),
                 const SizedBox(height: 10),
                 if (isInitialLoading)
-                  const SizedBox(height: 260, child: Center(child: CircularProgressIndicator()))
-                else if (repository.errorMessage != null && entries.isEmpty)
-                  ErrorState(message: 'Unable to connect. Please try again.', onRetry: repository.refreshAll)
+                  const SizedBox(
+                      height: 260,
+                      child: Center(child: CircularProgressIndicator()))
+                else if (widget.repository.errorMessage != null &&
+                    widget.repository.entries.isEmpty)
+                  ErrorState(
+                      message: 'Unable to connect. Please try again.',
+                      onRetry: widget.repository.refreshAll)
+                else if (entries.isEmpty && _query.isNotEmpty)
+                  const SizedBox(
+                      height: 220,
+                      child: EmptyState(message: 'No matching entries.'))
                 else if (entries.isEmpty)
-                  const SizedBox(height: 320, child: EmptyState(message: 'No entries yet. Start writing your first memory today.'))
+                  const SizedBox(
+                      height: 320,
+                      child: EmptyState(
+                          message:
+                              'No entries yet. Start writing your first memory today.'))
                 else
                   ...entries.map((entry) => EntryCard(
                         entry: entry,
@@ -83,9 +131,11 @@ class HomeScreen extends StatelessWidget {
   }
 
   String _displayName() {
-    final user = repository.currentUser;
+    final user = widget.repository.currentUser;
     final name = user?.name?.trim();
-    if (name != null && name.isNotEmpty) return name.split(RegExp(r'\s+')).first;
+    if (name != null && name.isNotEmpty) {
+      return name.split(RegExp(r'\s+')).first;
+    }
     final email = user?.email;
     if (email != null && email.isNotEmpty) return email.split('@').first;
     return 'there';
@@ -93,7 +143,26 @@ class HomeScreen extends StatelessWidget {
 
   Future<void> _openDetail(BuildContext context, DiaryEntry entry) async {
     await Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => EntryDetailScreen(api: repository.api, repository: repository, entry: entry),
+      builder: (_) => EntryDetailScreen(
+          api: widget.repository.api,
+          repository: widget.repository,
+          entry: entry),
     ));
+  }
+
+  List<DiaryEntry> _filterEntries(List<DiaryEntry> entries) {
+    if (_query.isEmpty) return entries;
+    return entries.where((entry) {
+      final haystack = [
+        entry.title,
+        entry.content,
+        entry.mood,
+        entry.bestMoment,
+        entry.challenge,
+        DateFormat('yyyy-MM-dd').format(entry.entryDate),
+        DateFormat('MMM d, yyyy').format(entry.entryDate),
+      ].whereType<String>().join(' ').toLowerCase();
+      return haystack.contains(_query);
+    }).toList();
   }
 }

@@ -12,6 +12,11 @@ class EntryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final coverImage = entry.imageMedia.isNotEmpty
+        ? entry.imageMedia.first.url
+        : entry.imageUrl;
+    final hasVideo = entry.videoMedia.isNotEmpty || entry.videoUrl != null;
+    final hasAudio = entry.audioMedia.isNotEmpty || entry.audioUrl != null;
     return Card(
       margin: const EdgeInsets.only(bottom: 14),
       child: InkWell(
@@ -26,12 +31,13 @@ class EntryCard extends StatelessWidget {
                 child: SizedBox(
                   width: 72,
                   height: 72,
-                  child: entry.imageUrl == null
+                  child: coverImage == null
                       ? Container(
                           color: AppTheme.primary.withValues(alpha: 0.1),
-                          child: const Icon(Icons.auto_stories, color: AppTheme.primary),
+                          child: const Icon(Icons.auto_stories,
+                              color: AppTheme.primary),
                         )
-                      : Image.network(entry.imageUrl!, fit: BoxFit.cover),
+                      : Image.network(coverImage, fit: BoxFit.cover),
                 ),
               ),
               const SizedBox(width: 12),
@@ -39,18 +45,42 @@ class EntryCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(entry.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
+                    Text(entry.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleSmall
+                            ?.copyWith(fontWeight: FontWeight.w800)),
                     const SizedBox(height: 4),
-                    Text(entry.preview, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12, height: 1.35)),
+                    Text(entry.preview,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: AppTheme.textSecondary,
+                            fontSize: 12,
+                            height: 1.35)),
                     const SizedBox(height: 6),
-                    Text(DateFormat('MMM d, yyyy').format(entry.entryDate), style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
-                    if (entry.videoUrl != null || entry.audioUrl != null) ...[
+                    Text(DateFormat('MMM d, yyyy').format(entry.entryDate),
+                        style: const TextStyle(
+                            color: AppTheme.textSecondary, fontSize: 12)),
+                    if (hasVideo || hasAudio) ...[
                       const SizedBox(height: 6),
                       Wrap(
                         spacing: 6,
                         children: [
-                          if (entry.videoUrl != null) const Icon(Icons.videocam_outlined, size: 15, color: AppTheme.primary),
-                          if (entry.audioUrl != null) const Icon(Icons.mic_none, size: 15, color: AppTheme.primary),
+                          if (entry.imageMedia.length > 1)
+                            Text('${entry.imageMedia.length} photos',
+                                style: const TextStyle(
+                                    color: AppTheme.primary,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800)),
+                          if (hasVideo)
+                            const Icon(Icons.videocam_outlined,
+                                size: 15, color: AppTheme.primary),
+                          if (hasAudio)
+                            const Icon(Icons.mic_none,
+                                size: 15, color: AppTheme.primary),
                         ],
                       ),
                     ],

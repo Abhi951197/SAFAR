@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Integer, Text, func
+from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Integer, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -39,3 +39,26 @@ class DiaryEntry(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     user: Mapped["User"] = relationship(back_populates="entries")
+    media: Mapped[list["EntryMedia"]] = relationship(
+        back_populates="entry",
+        cascade="all, delete-orphan",
+        order_by="EntryMedia.sort_order",
+    )
+
+
+class EntryMedia(Base):
+    __tablename__ = "entry_media"
+    __table_args__ = (
+        CheckConstraint("media_type in ('image', 'video', 'audio')", name="ck_entry_media_media_type"),
+        UniqueConstraint("entry_id", "sort_order", name="uq_entry_media_entry_sort_order"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    entry_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("diary_entries.id", ondelete="CASCADE"), index=True)
+    media_type: Mapped[str] = mapped_column(Text)
+    url: Mapped[str] = mapped_column(Text)
+    public_id: Mapped[str | None] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    entry: Mapped[DiaryEntry] = relationship(back_populates="media")

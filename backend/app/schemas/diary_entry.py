@@ -5,6 +5,21 @@ from uuid import UUID
 from pydantic import BaseModel, Field, model_validator
 
 
+class EntryMediaWrite(BaseModel):
+    media_type: Literal["image", "video", "audio"]
+    url: str
+    public_id: str | None = None
+    sort_order: int = Field(default=0, ge=0)
+
+
+class EntryMediaRead(EntryMediaWrite):
+    id: UUID
+    entry_id: UUID
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class DiaryEntryBase(BaseModel):
     title: str = Field(min_length=1, max_length=160)
     content: str | None = None
@@ -19,6 +34,7 @@ class DiaryEntryBase(BaseModel):
     video_public_id: str | None = None
     audio_url: str | None = None
     audio_public_id: str | None = None
+    media: list[EntryMediaWrite] = Field(default_factory=list)
     entry_date: date
 
     @model_validator(mode="after")
@@ -48,6 +64,7 @@ class DiaryEntryUpdate(BaseModel):
     video_public_id: str | None = None
     audio_url: str | None = None
     audio_public_id: str | None = None
+    media: list[EntryMediaWrite] | None = None
     entry_date: date | None = None
 
 
@@ -56,5 +73,6 @@ class DiaryEntryRead(DiaryEntryBase):
     user_id: UUID
     created_at: datetime
     updated_at: datetime
+    media: list[EntryMediaRead] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
