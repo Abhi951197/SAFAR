@@ -30,7 +30,8 @@ class AppScaffold extends StatelessWidget {
             ),
           ),
           if (showImageBackground) ...[
-            Image.asset('assets/images/safar_background.png', fit: BoxFit.cover),
+            Image.asset('assets/images/safar_background.png',
+                fit: BoxFit.cover),
             DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -62,6 +63,32 @@ class SafarLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (compact) {
+      return Container(
+        width: height,
+        height: height,
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white,
+          border: Border.all(color: AppTheme.border),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x14111827),
+              blurRadius: 14,
+              offset: Offset(0, 8),
+            ),
+          ],
+        ),
+        child: ClipOval(
+          child: Image.asset(
+            'assets/images/safar_logo.png',
+            fit: BoxFit.cover,
+            filterQuality: FilterQuality.high,
+          ),
+        ),
+      );
+    }
     return Image.asset(
       'assets/images/safar_logo.png',
       height: height,
@@ -85,7 +112,8 @@ class SafarHeroImage extends StatelessWidget {
           SizedBox(
             height: height,
             width: double.infinity,
-            child: Image.asset('assets/images/safar_background.png', fit: BoxFit.cover),
+            child: Image.asset('assets/images/safar_background.png',
+                fit: BoxFit.cover),
           ),
           Positioned.fill(
             child: DecoratedBox(
@@ -107,7 +135,10 @@ class SafarHeroImage extends StatelessWidget {
             bottom: 18,
             child: Text(
               'Reflect. Write. Grow.',
-              style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900),
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900),
             ),
           ),
         ],
@@ -117,7 +148,10 @@ class SafarHeroImage extends StatelessWidget {
 }
 
 class GlassPanel extends StatelessWidget {
-  const GlassPanel({required this.child, this.padding = const EdgeInsets.all(16), super.key});
+  const GlassPanel(
+      {required this.child,
+      this.padding = const EdgeInsets.all(16),
+      super.key});
 
   final Widget child;
   final EdgeInsets padding;
@@ -132,7 +166,8 @@ class GlassPanel extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: Colors.white.withValues(alpha: 0.72)),
         boxShadow: const [
-          BoxShadow(color: Color(0x1A111827), blurRadius: 28, offset: Offset(0, 16)),
+          BoxShadow(
+              color: Color(0x1A111827), blurRadius: 28, offset: Offset(0, 16)),
         ],
       ),
       child: child,
@@ -176,7 +211,8 @@ class GoogleButton extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          const Text('Continue with Google', style: TextStyle(fontWeight: FontWeight.w800)),
+          const Text('Continue with Google',
+              style: TextStyle(fontWeight: FontWeight.w800)),
         ],
       ),
     );
@@ -184,7 +220,12 @@ class GoogleButton extends StatelessWidget {
 }
 
 class MediaPill extends StatelessWidget {
-  const MediaPill({required this.icon, required this.label, required this.onTap, this.selected = false, super.key});
+  const MediaPill(
+      {required this.icon,
+      required this.label,
+      required this.onTap,
+      this.selected = false,
+      super.key});
 
   final IconData icon;
   final String label;
@@ -200,7 +241,9 @@ class MediaPill extends StatelessWidget {
         label: Text(label, overflow: TextOverflow.ellipsis),
         style: OutlinedButton.styleFrom(
           foregroundColor: selected ? AppTheme.primary : AppTheme.textPrimary,
-          backgroundColor: selected ? AppTheme.primary.withValues(alpha: 0.08) : Colors.white,
+          backgroundColor: selected
+              ? AppTheme.primary.withValues(alpha: 0.08)
+              : Colors.white,
           minimumSize: const Size(0, 44),
         ),
       ),
@@ -226,7 +269,11 @@ class MountainMemoryArt extends StatelessWidget {
 }
 
 class SoftCard extends StatelessWidget {
-  const SoftCard({required this.child, this.padding = const EdgeInsets.all(16), this.onTap, super.key});
+  const SoftCard(
+      {required this.child,
+      this.padding = const EdgeInsets.all(16),
+      this.onTap,
+      super.key});
 
   final Widget child;
   final EdgeInsets padding;
@@ -242,13 +289,15 @@ class SoftCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppTheme.border),
         boxShadow: const [
-          BoxShadow(color: Color(0x0F111827), blurRadius: 24, offset: Offset(0, 12)),
+          BoxShadow(
+              color: Color(0x0F111827), blurRadius: 24, offset: Offset(0, 12)),
         ],
       ),
       child: child,
     );
     if (onTap == null) return content;
-    return InkWell(borderRadius: BorderRadius.circular(14), onTap: onTap, child: content);
+    return InkWell(
+        borderRadius: BorderRadius.circular(14), onTap: onTap, child: content);
   }
 }
 
@@ -261,7 +310,10 @@ class SectionTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text,
-      style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+      style: Theme.of(context)
+          .textTheme
+          .titleMedium
+          ?.copyWith(fontWeight: FontWeight.w800),
     );
   }
 }
@@ -308,7 +360,8 @@ class _MountainPainter extends CustomPainter {
 
     final lake = Path()
       ..moveTo(0, size.height * 0.68)
-      ..cubicTo(size.width * 0.30, size.height * 0.58, size.width * 0.64, size.height * 0.58, size.width, size.height * 0.66)
+      ..cubicTo(size.width * 0.30, size.height * 0.58, size.width * 0.64,
+          size.height * 0.58, size.width, size.height * 0.66)
       ..lineTo(size.width, size.height)
       ..lineTo(0, size.height)
       ..close();
@@ -320,7 +373,8 @@ class _MountainPainter extends CustomPainter {
       ..strokeCap = StrokeCap.round;
     for (var i = 0; i < 7; i++) {
       final y = size.height * (0.74 + i * 0.03);
-      canvas.drawLine(Offset(size.width * (0.24 + i * 0.035), y), Offset(size.width * (0.78 - i * 0.035), y), reflection);
+      canvas.drawLine(Offset(size.width * (0.24 + i * 0.035), y),
+          Offset(size.width * (0.78 - i * 0.035), y), reflection);
     }
   }
 

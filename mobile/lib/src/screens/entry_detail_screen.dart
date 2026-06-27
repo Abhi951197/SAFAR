@@ -106,9 +106,23 @@ class _EntryDetailScreenState extends State<EntryDetailScreen> {
                           : 'Quick Diary')),
                 ],
               ),
-              if (images.isNotEmpty) ...[
+              if (audios.isNotEmpty) ...[
                 const SizedBox(height: 16),
+                ...audios.map((media) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _AudioPlayerCard(url: media.url),
+                    )),
+              ],
+              if (images.isNotEmpty) ...[
+                const SizedBox(height: 12),
                 _ImageGallery(images: images),
+              ],
+              if (videos.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                ...videos.map((media) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _VideoPlayerCard(url: media.url),
+                    )),
               ],
               const SizedBox(height: 18),
               if (_entry.entryType == 'full')
@@ -132,20 +146,6 @@ class _EntryDetailScreenState extends State<EntryDetailScreen> {
                         value: _entry.challenge ?? '-'),
                   ],
                 )),
-              if (videos.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                ...videos.map((media) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _VideoPlayerCard(url: media.url),
-                    )),
-              ],
-              if (audios.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                ...audios.map((media) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _AudioPlayerCard(url: media.url),
-                    )),
-              ],
             ],
           ),
         ),
@@ -174,8 +174,7 @@ class _ImageGallery extends StatelessWidget {
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 2, crossAxisSpacing: 8, mainAxisSpacing: 8),
       itemBuilder: (context, index) {
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(12),
+        return ClipOval(
           child: Image.network(images[index].url, fit: BoxFit.cover),
         );
       },

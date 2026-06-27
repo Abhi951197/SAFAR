@@ -191,6 +191,69 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
     }
   }
 
+  Future<void> _showMediaPicker() async {
+    if (_recording) {
+      await _toggleRecording();
+      return;
+    }
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _MediaSheetAction(
+                  icon: Icons.photo_library_outlined,
+                  label: 'Photos from gallery',
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _pickImages();
+                  },
+                ),
+                _MediaSheetAction(
+                  icon: Icons.photo_camera_outlined,
+                  label: 'Take photo',
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _captureImage();
+                  },
+                ),
+                _MediaSheetAction(
+                  icon: Icons.video_library_outlined,
+                  label: 'Video from gallery',
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _pickVideo(ImageSource.gallery);
+                  },
+                ),
+                _MediaSheetAction(
+                  icon: Icons.videocam_outlined,
+                  label: 'Record video',
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _pickVideo(ImageSource.camera);
+                  },
+                ),
+                _MediaSheetAction(
+                  icon: Icons.mic_none,
+                  label: 'Record audio',
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _toggleRecording();
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     if (!_isFull && _mood == null) {
@@ -374,49 +437,16 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
                             .toList(),
                       ),
                       const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          MediaPill(
-                              icon: Icons.photo_library_outlined,
-                              label: 'Gallery',
-                              onTap: _pickImages,
-                              selected: _imageFiles.isNotEmpty ||
-                                  _existingMedia.any(
-                                      (item) => item.mediaType == 'image')),
-                          MediaPill(
-                              icon: Icons.photo_camera_outlined,
-                              label: 'Camera',
-                              onTap: _captureImage,
-                              selected: _imageFiles.isNotEmpty ||
-                                  _existingMedia.any(
-                                      (item) => item.mediaType == 'image')),
-                          MediaPill(
-                              icon: Icons.videocam_outlined,
-                              label: 'Camera video',
-                              onTap: () => _pickVideo(ImageSource.camera),
-                              selected: _videoFiles.isNotEmpty ||
-                                  _existingMedia.any(
-                                      (item) => item.mediaType == 'video')),
-                          MediaPill(
-                              icon: Icons.video_library_outlined,
-                              label: 'Gallery video',
-                              onTap: () => _pickVideo(ImageSource.gallery),
-                              selected: _videoFiles.isNotEmpty ||
-                                  _existingMedia.any(
-                                      (item) => item.mediaType == 'video')),
-                          MediaPill(
-                              icon: _recording
-                                  ? Icons.stop_circle_outlined
-                                  : Icons.mic_none,
-                              label: _recording ? 'Stop' : 'Audio 10s',
-                              onTap: _toggleRecording,
-                              selected: _audioFile != null ||
-                                  _existingMedia.any(
-                                      (item) => item.mediaType == 'audio') ||
-                                  _recording),
-                        ],
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: _showMediaPicker,
+                          icon: Icon(_recording
+                              ? Icons.stop_circle_outlined
+                              : Icons.add_photo_alternate_outlined),
+                          label:
+                              Text(_recording ? 'Stop recording' : 'Add media'),
+                        ),
                       ),
                       const SizedBox(height: 10),
                       _MediaStatus(
@@ -583,21 +613,49 @@ class _ImagePreviewGrid extends StatelessWidget {
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 3, crossAxisSpacing: 8, mainAxisSpacing: 8),
       itemBuilder: (context, index) {
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: index < imageUrls.length
-              ? Image.network(imageUrls[index], fit: BoxFit.cover)
-              : FutureBuilder(
-                  future: imageFiles[index - imageUrls.length].readAsBytes(),
-                  builder: (context, snapshot) {
-                    if (!snapshot.hasData) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    return Image.memory(snapshot.data!, fit: BoxFit.cover);
-                  },
-                ),
+        return ClipOval(
+          child: DecoratedBox(
+            decoration:
+                BoxDecoration(color: AppTheme.primary.withValues(alpha: 0.08)),
+            child: index < imageUrls.length
+                ? Image.network(imageUrls[index], fit: BoxFit.cover)
+                : FutureBuilder(
+                    future: imageFiles[index - imageUrls.length].readAsBytes(),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      return Image.memory(snapshot.data!, fit: BoxFit.cover);
+                    },
+                  ),
+          ),
         );
       },
+    );
+  }
+}
+
+class _MediaSheetAction extends StatelessWidget {
+  const _MediaSheetAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      leading: CircleAvatar(
+        backgroundColor: AppTheme.primary.withValues(alpha: 0.1),
+        foregroundColor: AppTheme.primary,
+        child: Icon(icon),
+      ),
+      title: Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
+      onTap: onTap,
     );
   }
 }

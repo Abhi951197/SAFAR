@@ -37,8 +37,8 @@ jobs:
         working-directory: mobile
         run: >
           flutter build apk --release
-          --dart-define=SUPABASE_URL=https://aqgtfiuwdbywqhcjevfo.supabase.co
-          --dart-define=SUPABASE_ANON_KEY=sb_publishable_9b9sQrbZz84YbARHaOuzPQ_JjiYJPm_
+          --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
           --dart-define=GOOGLE_WEB_CLIENT_ID=33551217855-eo6g9c37peqhimofdk6ulcoh6tqsfj89.apps.googleusercontent.com
           --dart-define=API_BASE_URL=https://safar-hyez.onrender.com
 
