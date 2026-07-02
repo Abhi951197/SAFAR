@@ -175,6 +175,65 @@ class GlassPanel extends StatelessWidget {
   }
 }
 
+class PanelListTile extends StatelessWidget {
+  const PanelListTile({
+    required this.title,
+    this.leading,
+    this.trailing,
+    this.subtitle,
+    this.onTap,
+    super.key,
+  });
+
+  final Widget? leading;
+  final Widget title;
+  final Widget? subtitle;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: ListTile(
+        leading: leading,
+        title: title,
+        subtitle: subtitle,
+        trailing: trailing,
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
+class PanelSwitchListTile extends StatelessWidget {
+  const PanelSwitchListTile({
+    required this.value,
+    required this.title,
+    required this.onChanged,
+    this.activeThumbColor,
+    super.key,
+  });
+
+  final bool value;
+  final Widget title;
+  final ValueChanged<bool> onChanged;
+  final Color? activeThumbColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: SwitchListTile(
+        value: value,
+        activeThumbColor: activeThumbColor,
+        title: title,
+        onChanged: onChanged,
+      ),
+    );
+  }
+}
+
 class GoogleButton extends StatelessWidget {
   const GoogleButton({required this.onPressed, super.key});
 

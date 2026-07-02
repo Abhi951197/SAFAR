@@ -34,3 +34,11 @@ services:
         sync: false
       - key: CLOUDINARY_UPLOAD_FOLDER
         value: safar
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_TEXT_MODEL
+        value: gemini-flash-latest
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_TEXT_MODEL
+        value: llama-3.1-8b-instant

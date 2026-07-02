@@ -2,10 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/diary_entry.dart';
 import '../services/api_client.dart';
@@ -37,6 +39,7 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
   final _content = TextEditingController();
   final _bestMoment = TextEditingController();
   final _challenge = TextEditingController();
+  final _titleFocus = FocusNode();
   final _picker = ImagePicker();
   final _recorder = AudioRecorder();
 
@@ -49,6 +52,8 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
   List<EntryMedia> _existingMedia = [];
   bool _saving = false;
   bool _recording = false;
+  String? _aiAction;
+  List<String> _titleSuggestions = [];
   Timer? _recordingTimer;
 
   bool get _isFull => widget.entryType == 'full';
@@ -57,6 +62,10 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
   @override
   void initState() {
     super.initState();
+    _titleFocus.addListener(_refreshSelectionState);
+    _content.addListener(_refreshSelectionState);
+    _bestMoment.addListener(_refreshSelectionState);
+    _challenge.addListener(_refreshSelectionState);
     _initialEntry = widget.entry;
     final entry = _initialEntry;
     if (entry != null) {
@@ -75,13 +84,22 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
 
   @override
   void dispose() {
+    _titleFocus.removeListener(_refreshSelectionState);
+    _content.removeListener(_refreshSelectionState);
+    _bestMoment.removeListener(_refreshSelectionState);
+    _challenge.removeListener(_refreshSelectionState);
     _title.dispose();
+    _titleFocus.dispose();
     _content.dispose();
     _bestMoment.dispose();
     _challenge.dispose();
     _recordingTimer?.cancel();
     _recorder.dispose();
     super.dispose();
+  }
+
+  void _refreshSelectionState() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _pickImages() async {
@@ -363,6 +381,282 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
     if (picked != null) setState(() => _entryDate = picked);
   }
 
+  Future<bool> _ensureAiNoticeAccepted() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('safar_ai_notice_seen') == true) return true;
+    if (!mounted) return false;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('AI writing privacy'),
+        content: const Text(
+            'AI features send selected diary text to the AI service only when you tap an AI button.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel')),
+          ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Continue')),
+        ],
+      ),
+    );
+    if (accepted == true) {
+      await prefs.setBool('safar_ai_notice_seen', true);
+      return true;
+    }
+    return false;
+  }
+
+  Future<void> _runAiAction(
+      String action, Future<void> Function() callback) async {
+    if (_aiAction != null) return;
+    if (!await _ensureAiNoticeAccepted()) return;
+    setState(() => _aiAction = action);
+    try {
+      await callback();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(error is ApiException
+                ? error.message
+                : 'AI writing is unavailable right now.')));
+      }
+    } finally {
+      if (mounted) setState(() => _aiAction = null);
+    }
+  }
+
+  String _diaryTextForAi() {
+    if (_isFull) {
+      return [_title.text.trim(), _content.text.trim()]
+          .where((value) => value.isNotEmpty)
+          .join('\n\n');
+    }
+    final parts = <String>[
+      if (_title.text.trim().isNotEmpty) 'Title: ${_title.text.trim()}',
+      if (_mood != null) 'Mood: $_mood',
+      'Energy: $_energy/10',
+      if (_bestMoment.text.trim().isNotEmpty)
+        'Best moment: ${_bestMoment.text.trim()}',
+      if (_challenge.text.trim().isNotEmpty)
+        'Challenge: ${_challenge.text.trim()}',
+    ];
+    return parts.join('\n');
+  }
+
+  Future<void> _suggestTitles() async {
+    await _runAiAction('titles', () async {
+      final text = _diaryTextForAi();
+      if (text.trim().isEmpty) {
+        _showLimit('Write a little first, then Safar can suggest titles.');
+        return;
+      }
+      final titles = await widget.api.suggestDiaryTitles(text);
+      if (!mounted) return;
+      setState(() => _titleSuggestions = titles);
+    });
+  }
+
+  Future<void> _summarize() async {
+    await _runAiAction('summary', () async {
+      final text = _diaryTextForAi();
+      if (text.trim().isEmpty) {
+        _showLimit('Write a little first, then Safar can summarize it.');
+        return;
+      }
+      final summary = await widget.api.summarizeDiary(text);
+      if (!mounted) return;
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (context) => DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.56,
+          minChildSize: 0.32,
+          maxChildSize: 0.9,
+          builder: (context, scrollController) => SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 22),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('AI Summary',
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      controller: scrollController,
+                      child:
+                          Text(summary, style: const TextStyle(height: 1.45)),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: summary));
+                        Navigator.of(context).pop();
+                      },
+                      icon: const Icon(Icons.copy),
+                      label: const Text('Copy'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    });
+  }
+
+  Future<void> _enhanceAll() async {
+    final controller = _isFull ? _content : _bestMoment;
+    final label = _isFull ? 'diary' : 'best moment';
+    await _enhanceController(controller,
+        label: label, selectionOnly: false, action: 'enhance_all');
+  }
+
+  Future<void> _enhanceController(TextEditingController controller,
+      {required String label,
+      required bool selectionOnly,
+      required String action}) async {
+    await _runAiAction(action, () async {
+      final selection = controller.selection;
+      final hasSelection = selection.isValid &&
+          !selection.isCollapsed &&
+          selection.start >= 0 &&
+          selection.end <= controller.text.length;
+      final original = selectionOnly && hasSelection
+          ? controller.text.substring(selection.start, selection.end)
+          : controller.text.trim();
+      if (original.trim().isEmpty) {
+        _showLimit(selectionOnly
+            ? 'Select text first, then tap Enhance Selection.'
+            : 'Write a little first, then Safar can enhance it.');
+        return;
+      }
+      if (selectionOnly && !hasSelection) {
+        _showLimit('Select text first, then tap Enhance Selection.');
+        return;
+      }
+      final enhanced = await widget.api.enhanceDiaryText(original);
+      if (!mounted) return;
+      final replace = await _showEnhancePreview(original, enhanced, label);
+      if (replace != true) return;
+      final previousValue = controller.value;
+      setState(() {
+        if (selectionOnly) {
+          final next = controller.text
+              .replaceRange(selection.start, selection.end, enhanced);
+          controller.value = TextEditingValue(
+            text: next,
+            selection: TextSelection.collapsed(
+                offset: selection.start + enhanced.length),
+          );
+        } else {
+          controller.text = enhanced;
+        }
+      });
+      _showUndoAiChange(controller, previousValue);
+    });
+  }
+
+  void _showUndoAiChange(
+      TextEditingController controller, TextEditingValue previousValue) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: const Text('AI change applied.'),
+          duration: const Duration(seconds: 8),
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () {
+              setState(() => controller.value = previousValue);
+            },
+          ),
+        ),
+      );
+  }
+
+  Future<bool?> _showEnhancePreview(
+      String original, String enhanced, String label) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        scrollable: true,
+        title: Text('Enhance $label'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Original',
+                  style: TextStyle(fontWeight: FontWeight.w900)),
+              const SizedBox(height: 6),
+              SelectableText(original, style: const TextStyle(height: 1.35)),
+              const SizedBox(height: 16),
+              const Text('Enhanced',
+                  style: TextStyle(fontWeight: FontWeight.w900)),
+              const SizedBox(height: 6),
+              SelectableText(enhanced, style: const TextStyle(height: 1.35)),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel')),
+          TextButton.icon(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: enhanced));
+                Navigator.of(context).pop(false);
+              },
+              icon: const Icon(Icons.copy),
+              label: const Text('Copy')),
+          ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Replace')),
+        ],
+      ),
+    );
+  }
+
+  bool _hasSelection(TextEditingController controller) {
+    final selection = controller.selection;
+    return selection.isValid &&
+        !selection.isCollapsed &&
+        selection.start >= 0 &&
+        selection.end <= controller.text.length;
+  }
+
+  Widget _selectionEnhanceButton(TextEditingController controller) {
+    if (!_hasSelection(controller)) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Align(
+        alignment: Alignment.centerRight,
+        child: _FloatingEnhancePill(
+          busy: _aiAction == 'enhance_selection',
+          onPressed: _aiAction == null
+              ? () => _enhanceController(controller,
+                  label: 'selection',
+                  selectionOnly: true,
+                  action: 'enhance_selection')
+              : null,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final title = _initialEntry == null
@@ -396,22 +690,87 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
                   child: Column(
                     children: [
                       TextFormField(
+                        focusNode: _titleFocus,
                         controller: _title,
-                        decoration: const InputDecoration(labelText: 'Title'),
+                        decoration: InputDecoration(
+                          labelText: 'Title',
+                          suffixIcon: AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 160),
+                            child: _titleFocus.hasFocus
+                                ? IconButton(
+                                    key: const ValueKey('suggest-title'),
+                                    tooltip: 'Suggest title',
+                                    onPressed: _aiAction == null
+                                        ? _suggestTitles
+                                        : null,
+                                    icon: _aiAction == 'titles'
+                                        ? const SizedBox.square(
+                                            dimension: 18,
+                                            child: CircularProgressIndicator(
+                                                strokeWidth: 2))
+                                        : const Icon(Icons.auto_fix_high),
+                                  )
+                                : const SizedBox.shrink(),
+                          ),
+                        ),
                         validator: (value) =>
                             value == null || value.trim().isEmpty
                                 ? 'Title required'
                                 : null,
                       ),
-                      const SizedBox(height: 12),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: OutlinedButton.icon(
-                          onPressed: _selectDate,
-                          icon: const Icon(Icons.event),
-                          label: Text(
-                              DateFormat('MMM d, yyyy').format(_entryDate)),
+                      if (_titleSuggestions.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: _titleSuggestions
+                                .map((title) => ActionChip(
+                                      label: Text(title),
+                                      onPressed: () => setState(() {
+                                        _title.text = title;
+                                        _titleSuggestions = [];
+                                      }),
+                                    ))
+                                .toList(),
+                          ),
                         ),
+                      ],
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _selectDate,
+                              style: OutlinedButton.styleFrom(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 8),
+                              ),
+                              icon: const Icon(Icons.event, size: 17),
+                              label: FittedBox(
+                                child: Text(
+                                    DateFormat('MMM d').format(_entryDate)),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _BlackOutlineButton(
+                              label: 'Summarize',
+                              busy: _aiAction == 'summary',
+                              onPressed: _aiAction == null ? _summarize : null,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _BlackOutlineButton(
+                              label: 'Enhance All',
+                              busy: _aiAction == 'enhance_all',
+                              onPressed: _aiAction == null ? _enhanceAll : null,
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 16),
                       if (_isFull) _fullDiaryFields() else _quickDiaryFields(),
@@ -480,14 +839,19 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
   }
 
   Widget _fullDiaryFields() {
-    return TextFormField(
-      controller: _content,
-      minLines: 7,
-      maxLines: 12,
-      decoration: const InputDecoration(
-          labelText: 'What is on your mind?', alignLabelWithHint: true),
-      validator: (value) =>
-          value == null || value.trim().isEmpty ? 'Content required' : null,
+    return Column(
+      children: [
+        TextFormField(
+          controller: _content,
+          minLines: 7,
+          maxLines: 12,
+          decoration: const InputDecoration(
+              labelText: 'What is on your mind?', alignLabelWithHint: true),
+          validator: (value) =>
+              value == null || value.trim().isEmpty ? 'Content required' : null,
+        ),
+        _selectionEnhanceButton(_content),
+      ],
     );
   }
 
@@ -573,6 +937,7 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
             maxLines: 4,
             decoration:
                 const InputDecoration(labelText: 'Best moment of the day')),
+        _selectionEnhanceButton(_bestMoment),
         const SizedBox(height: 14),
         TextFormField(
             controller: _challenge,
@@ -580,7 +945,83 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
             maxLines: 4,
             decoration: const InputDecoration(
                 labelText: 'What was your biggest challenge?')),
+        _selectionEnhanceButton(_challenge),
       ],
+    );
+  }
+}
+
+class _BlackOutlineButton extends StatelessWidget {
+  const _BlackOutlineButton({
+    required this.label,
+    required this.busy,
+    required this.onPressed,
+  });
+
+  final String label;
+  final bool busy;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: Colors.black,
+        backgroundColor: Colors.white,
+        side: const BorderSide(color: Colors.black),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+      ),
+      icon: busy
+          ? const SizedBox.square(
+              dimension: 16, child: CircularProgressIndicator(strokeWidth: 2))
+          : const Icon(Icons.auto_awesome, size: 17),
+      label: FittedBox(child: Text(label)),
+    );
+  }
+}
+
+class _FloatingEnhancePill extends StatelessWidget {
+  const _FloatingEnhancePill({required this.busy, required this.onPressed});
+
+  final bool busy;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      elevation: 8,
+      shadowColor: Colors.black.withValues(alpha: 0.18),
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onPressed,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: Colors.black),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (busy)
+                const SizedBox.square(
+                    dimension: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2))
+              else
+                const Icon(Icons.auto_fix_high, size: 15),
+              const SizedBox(width: 6),
+              const Text('Enhance',
+                  style: TextStyle(
+                      color: Colors.black,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900)),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

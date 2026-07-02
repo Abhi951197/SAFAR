@@ -4,7 +4,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=False)
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
 
     app_name: str = "Safar API"
     environment: str = "local"
@@ -32,6 +37,11 @@ class Settings(BaseSettings):
     cloudinary_api_key: str
     cloudinary_api_secret: str
     cloudinary_upload_folder: str = "safar"
+
+    gemini_api_key: str | None = None
+    gemini_text_model: str = "gemini-flash-latest"
+    groq_api_key: str | None = None
+    groq_text_model: str = "llama-3.1-8b-instant"
 
 
 settings = Settings()

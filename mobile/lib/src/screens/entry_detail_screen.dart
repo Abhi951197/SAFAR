@@ -69,6 +69,10 @@ class _EntryDetailScreenState extends State<EntryDetailScreen> {
     final images = _entry.imageMedia;
     final videos = _entry.videoMedia;
     final audios = _entry.audioMedia;
+    final visualMedia = [
+      ...images,
+      ...videos,
+    ];
     return AppScaffold(
       padding: EdgeInsets.zero,
       child: Scaffold(
@@ -113,16 +117,9 @@ class _EntryDetailScreenState extends State<EntryDetailScreen> {
                       child: _AudioPlayerCard(url: media.url),
                     )),
               ],
-              if (images.isNotEmpty) ...[
+              if (visualMedia.isNotEmpty) ...[
                 const SizedBox(height: 12),
-                _ImageGallery(images: images),
-              ],
-              if (videos.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                ...videos.map((media) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _VideoPlayerCard(url: media.url),
-                    )),
+                _MediaStackGallery(media: visualMedia),
               ],
               const SizedBox(height: 18),
               if (_entry.entryType == 'full')
@@ -154,30 +151,212 @@ class _EntryDetailScreenState extends State<EntryDetailScreen> {
   }
 }
 
-class _ImageGallery extends StatelessWidget {
-  const _ImageGallery({required this.images});
+class _MediaStackGallery extends StatelessWidget {
+  const _MediaStackGallery({required this.media});
 
-  final List<EntryMedia> images;
+  final List<EntryMedia> media;
 
   @override
   Widget build(BuildContext context) {
-    if (images.length == 1) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: Image.network(images.first.url, fit: BoxFit.cover),
+    final first = media.first;
+    return GestureDetector(
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => _FullscreenMediaViewer(media: media))),
+      child: SizedBox(
+        height: 260,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            if (media.length > 2)
+              Positioned(
+                left: 28,
+                right: 28,
+                top: 20,
+                bottom: 0,
+                child: _StackShadowLayer(
+                    color: AppTheme.primary.withValues(alpha: 0.18)),
+              ),
+            if (media.length > 1)
+              Positioned(
+                left: 14,
+                right: 14,
+                top: 10,
+                bottom: 6,
+                child: _StackShadowLayer(
+                    color: Colors.black.withValues(alpha: 0.08)),
+              ),
+            Positioned.fill(
+              child: Hero(
+                tag: 'entry-media-${first.url}',
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: _MediaPreview(media: first),
+                ),
+              ),
+            ),
+            Positioned(
+              right: 12,
+              top: 12,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.56),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      media.any((item) => item.mediaType == 'video')
+                          ? Icons.collections_outlined
+                          : Icons.photo_library_outlined,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 5),
+                    Text('${media.length}',
+                        style: const TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.w800)),
+                  ],
+                ),
+              ),
+            ),
+            const Positioned(
+              left: 12,
+              bottom: 12,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                    color: Color(0x8C000000),
+                    borderRadius: BorderRadius.all(Radius.circular(999))),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  child: Row(
+                    children: [
+                      Icon(Icons.swipe, size: 16, color: Colors.white),
+                      SizedBox(width: 6),
+                      Text('Tap to view',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StackShadowLayer extends StatelessWidget {
+  const _StackShadowLayer({required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration:
+          BoxDecoration(color: color, borderRadius: BorderRadius.circular(18)),
+    );
+  }
+}
+
+class _MediaPreview extends StatelessWidget {
+  const _MediaPreview({required this.media});
+
+  final EntryMedia media;
+
+  @override
+  Widget build(BuildContext context) {
+    if (media.mediaType == 'video') {
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          Container(color: const Color(0xFF111827)),
+          const Center(
+            child: Icon(Icons.play_circle_fill, color: Colors.white, size: 68),
+          ),
+        ],
       );
     }
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: images.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2, crossAxisSpacing: 8, mainAxisSpacing: 8),
-      itemBuilder: (context, index) {
-        return ClipOval(
-          child: Image.network(images[index].url, fit: BoxFit.cover),
-        );
-      },
+    return Image.network(
+      media.url,
+      width: double.infinity,
+      height: double.infinity,
+      fit: BoxFit.cover,
+    );
+  }
+}
+
+class _FullscreenMediaViewer extends StatefulWidget {
+  const _FullscreenMediaViewer({required this.media});
+
+  final List<EntryMedia> media;
+
+  @override
+  State<_FullscreenMediaViewer> createState() => _FullscreenMediaViewerState();
+}
+
+class _FullscreenMediaViewerState extends State<_FullscreenMediaViewer> {
+  late final PageController _controller;
+  int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = PageController();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text('${_index + 1} / ${widget.media.length}'),
+      ),
+      body: PageView.builder(
+        controller: _controller,
+        itemCount: widget.media.length,
+        onPageChanged: (value) => setState(() => _index = value),
+        itemBuilder: (context, index) {
+          final item = widget.media[index];
+          if (item.mediaType == 'video') {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: _VideoPlayerCard(url: item.url, darkMode: true),
+              ),
+            );
+          }
+          return InteractiveViewer(
+            minScale: 1,
+            maxScale: 4,
+            child: Center(
+              child: Hero(
+                tag: index == 0 ? 'entry-media-${item.url}' : item.url,
+                child: Image.network(
+                  item.url,
+                  width: double.infinity,
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }
@@ -315,9 +494,10 @@ class _Fact extends StatelessWidget {
 }
 
 class _VideoPlayerCard extends StatefulWidget {
-  const _VideoPlayerCard({required this.url});
+  const _VideoPlayerCard({required this.url, this.darkMode = false});
 
   final String url;
+  final bool darkMode;
 
   @override
   State<_VideoPlayerCard> createState() => _VideoPlayerCardState();
@@ -343,85 +523,89 @@ class _VideoPlayerCardState extends State<_VideoPlayerCard> {
 
   @override
   Widget build(BuildContext context) {
-    return SoftCard(
-      padding: EdgeInsets.zero,
-      child: FutureBuilder<void>(
-        future: _initialize,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const SizedBox(
-                height: 190, child: Center(child: CircularProgressIndicator()));
-          }
-          if (snapshot.hasError || _controller.value.hasError) {
-            return Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Video could not be loaded.',
-                      style: TextStyle(fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 6),
-                  Text(widget.url,
-                      style: const TextStyle(
-                          color: AppTheme.textSecondary, fontSize: 12)),
-                ],
-              ),
-            );
-          }
-          return ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: Stack(
-              alignment: Alignment.center,
+    final child = FutureBuilder<void>(
+      future: _initialize,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const SizedBox(
+              height: 190, child: Center(child: CircularProgressIndicator()));
+        }
+        if (snapshot.hasError || _controller.value.hasError) {
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                AspectRatio(
-                  aspectRatio: _controller.value.aspectRatio == 0
-                      ? 16 / 9
-                      : _controller.value.aspectRatio,
-                  child: VideoPlayer(_controller),
-                ),
-                Positioned.fill(
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: () {
-                        setState(() {
-                          _controller.value.isPlaying
-                              ? _controller.pause()
-                              : _controller.play();
-                        });
-                      },
-                      child: Center(
-                        child: AnimatedOpacity(
-                          opacity: _controller.value.isPlaying ? 0 : 1,
-                          duration: const Duration(milliseconds: 160),
-                          child: Container(
-                            width: 58,
-                            height: 58,
-                            decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.52),
-                                shape: BoxShape.circle),
-                            child: const Icon(Icons.play_arrow,
-                                color: Colors.white, size: 34),
-                          ),
+                const Text('Video could not be loaded.',
+                    style: TextStyle(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 6),
+                Text(widget.url,
+                    style: const TextStyle(
+                        color: AppTheme.textSecondary, fontSize: 12)),
+              ],
+            ),
+          );
+        }
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              AspectRatio(
+                aspectRatio: _controller.value.aspectRatio == 0
+                    ? 16 / 9
+                    : _controller.value.aspectRatio,
+                child: VideoPlayer(_controller),
+              ),
+              Positioned.fill(
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () {
+                      setState(() {
+                        _controller.value.isPlaying
+                            ? _controller.pause()
+                            : _controller.play();
+                      });
+                    },
+                    child: Center(
+                      child: AnimatedOpacity(
+                        opacity: _controller.value.isPlaying ? 0 : 1,
+                        duration: const Duration(milliseconds: 160),
+                        child: Container(
+                          width: 58,
+                          height: 58,
+                          decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.52),
+                              shape: BoxShape.circle),
+                          child: const Icon(Icons.play_arrow,
+                              color: Colors.white, size: 34),
                         ),
                       ),
                     ),
                   ),
                 ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: VideoProgressIndicator(_controller,
-                      allowScrubbing: true,
-                      colors: const VideoProgressColors(
-                          playedColor: AppTheme.primary)),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: VideoProgressIndicator(_controller,
+                    allowScrubbing: true,
+                    colors: const VideoProgressColors(
+                        playedColor: AppTheme.primary)),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (widget.darkMode) {
+      return child;
+    }
+    return SoftCard(
+      padding: EdgeInsets.zero,
+      child: child,
     );
   }
 }

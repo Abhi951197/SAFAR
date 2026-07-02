@@ -134,6 +134,10 @@ def update_entry(
     for key, value in payload_data.items():
         setattr(entry, key, value)
     if payload.media is not None:
+        for media_item in list(entry.media):
+            db.delete(media_item)
+        db.flush()
+        entry.media = []
         _replace_media(entry, payload.media)
         _sync_legacy_media_fields(entry)
     db.commit()

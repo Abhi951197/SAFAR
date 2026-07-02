@@ -21,6 +21,9 @@ dependencies:
   video_player: ^2.11.1
   just_audio: ^0.9.46
   shared_preferences: ^2.5.5
+  flutter_local_notifications: ^17.2.4
+  timezone: ^0.9.4
+  flutter_timezone: ^1.0.8
 
 dev_dependencies:
   flutter_test:

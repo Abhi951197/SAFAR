@@ -3,14 +3,18 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'src/app.dart';
 import 'src/config/app_config.dart';
+import 'src/services/reminder_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (!AppConfig.isConfigured) {
-    runApp(const StartupErrorApp(message: 'Missing Supabase or API configuration. Start the app with the required --dart-define values.'));
+    runApp(const StartupErrorApp(
+        message:
+            'Missing Supabase or API configuration. Start the app with the required --dart-define values.'));
     return;
   }
   try {
+    await ReminderService.instance.initialize();
     await Supabase.initialize(
       url: AppConfig.supabaseUrl,
       publishableKey: AppConfig.supabaseAnonKey,

@@ -11,7 +11,8 @@ import '../models/diary_entry.dart';
 import '../models/user_profile.dart';
 
 class ApiClient {
-  ApiClient({http.Client? httpClient}) : _httpClient = httpClient ?? http.Client();
+  ApiClient({http.Client? httpClient})
+      : _httpClient = httpClient ?? http.Client();
 
   final http.Client _httpClient;
   final _dateFormat = DateFormat('yyyy-MM-dd');
@@ -22,7 +23,8 @@ class ApiClient {
       path: '${base.path}${path.startsWith('/') ? path : '/$path'}',
       queryParameters: {
         for (final entry in query.entries)
-          if (entry.value != null && entry.value!.isNotEmpty) entry.key: entry.value!,
+          if (entry.value != null && entry.value!.isNotEmpty)
+            entry.key: entry.value!,
       },
     );
   }
@@ -37,7 +39,8 @@ class ApiClient {
   }
 
   Future<UserProfile> me() async {
-    final response = await _httpClient.get(_uri('/auth/me'), headers: await _headers());
+    final response =
+        await _httpClient.get(_uri('/auth/me'), headers: await _headers());
     return UserProfile.fromJson(_decode(response));
   }
 
@@ -50,7 +53,8 @@ class ApiClient {
     return UserProfile.fromJson(_decode(response));
   }
 
-  Future<List<DiaryEntry>> entries({DateTime? startDate, DateTime? endDate}) async {
+  Future<List<DiaryEntry>> entries(
+      {DateTime? startDate, DateTime? endDate}) async {
     final response = await _httpClient.get(
       _uri('/entries', {
         'start_date': startDate == null ? null : _dateFormat.format(startDate),
@@ -71,7 +75,8 @@ class ApiClient {
     return DiaryEntry.fromJson(_decode(response));
   }
 
-  Future<DiaryEntry> updateEntry(String id, Map<String, dynamic> payload) async {
+  Future<DiaryEntry> updateEntry(
+      String id, Map<String, dynamic> payload) async {
     final response = await _httpClient.put(
       _uri('/entries/$id'),
       headers: await _headers(),
@@ -81,8 +86,37 @@ class ApiClient {
   }
 
   Future<void> deleteEntry(String id) async {
-    final response = await _httpClient.delete(_uri('/entries/$id'), headers: await _headers());
+    final response = await _httpClient.delete(_uri('/entries/$id'),
+        headers: await _headers());
     if (response.statusCode != 204) _throwForResponse(response);
+  }
+
+  Future<String> summarizeDiary(String text) async {
+    final response = await _httpClient.post(
+      _uri('/ai/summarize'),
+      headers: await _headers(),
+      body: jsonEncode({'text': text}),
+    );
+    return _decode(response)['summary'] as String;
+  }
+
+  Future<String> enhanceDiaryText(String text) async {
+    final response = await _httpClient.post(
+      _uri('/ai/enhance'),
+      headers: await _headers(),
+      body: jsonEncode({'text': text}),
+    );
+    return _decode(response)['enhanced_text'] as String;
+  }
+
+  Future<List<String>> suggestDiaryTitles(String text) async {
+    final response = await _httpClient.post(
+      _uri('/ai/suggest-titles'),
+      headers: await _headers(),
+      body: jsonEncode({'text': text}),
+    );
+    final decoded = _decode(response);
+    return (decoded['titles'] as List<dynamic>).cast<String>();
   }
 
   Future<Map<String, String>> uploadImage(XFile file) async {
@@ -169,22 +203,30 @@ class ApiClient {
   }
 
   Map<String, dynamic> _decode(http.Response response) {
-    if (response.statusCode < 200 || response.statusCode >= 300) _throwForResponse(response);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      _throwForResponse(response);
+    }
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
   List<Map<String, dynamic>> _decodeList(http.Response response) {
-    if (response.statusCode < 200 || response.statusCode >= 300) _throwForResponse(response);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      _throwForResponse(response);
+    }
     final list = jsonDecode(response.body) as List<dynamic>;
     return list.cast<Map<String, dynamic>>();
   }
 
   Never _throwForResponse(http.Response response) {
-    String fallback() => response.body.isEmpty ? 'Request failed with status ${response.statusCode}.' : response.body;
+    String fallback() => response.body.isEmpty
+        ? 'Request failed with status ${response.statusCode}.'
+        : response.body;
     try {
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
       final detail = decoded['detail'];
-      if (detail is List) throw ApiException(detail.map((item) => item.toString()).join('\n'));
+      if (detail is List) {
+        throw ApiException(detail.map((item) => item.toString()).join('\n'));
+      }
       throw ApiException(detail?.toString() ?? 'Request failed.');
     } on FormatException {
       throw ApiException(fallback());

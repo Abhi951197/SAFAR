@@ -26,18 +26,22 @@ class EntryCard extends StatelessWidget {
           padding: const EdgeInsets.all(10),
           child: Row(
             children: [
-              ClipOval(
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
                 child: SizedBox(
-                  width: 74,
+                  width: 92,
                   height: 74,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: AppTheme.primary.withValues(alpha: 0.1),
-                    ),
+                  child: ColoredBox(
+                    color: AppTheme.primary.withValues(alpha: 0.1),
                     child: coverImage == null
                         ? const Icon(Icons.auto_stories,
                             color: AppTheme.primary)
-                        : Image.network(coverImage, fit: BoxFit.cover),
+                        : Image.network(
+                            coverImage,
+                            width: double.infinity,
+                            height: double.infinity,
+                            fit: BoxFit.cover,
+                          ),
                   ),
                 ),
               ),
