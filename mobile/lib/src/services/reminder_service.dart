@@ -49,7 +49,9 @@ class ReminderService {
         ?.requestNotificationsPermission();
     _initialized = true;
     final settings = await loadSettings();
-    if (settings.enabled) await schedule(settings);
+    if (settings.enabled) {
+      await schedule(settings, throwOnError: false);
+    }
   }
 
   Future<ReminderSettings> loadSettings() async {
@@ -79,30 +81,43 @@ class ReminderService {
     }
   }
 
-  Future<void> schedule(ReminderSettings settings) async {
-    await cancel();
-    await _plugin.zonedSchedule(
-      _notificationId,
-      'Safar',
-      settings.message.trim().isEmpty ? defaultMessage : settings.message,
-      _nextInstance(settings.hour, settings.minute),
-      const NotificationDetails(
-        android: AndroidNotificationDetails(
-          'daily_reminder',
-          'Daily reminders',
-          channelDescription: 'Daily Safar diary reminder',
-          importance: Importance.defaultImportance,
-          priority: Priority.defaultPriority,
+  Future<void> schedule(
+    ReminderSettings settings, {
+    bool throwOnError = true,
+  }) async {
+    try {
+      await cancel(throwOnError: false);
+      await _plugin.zonedSchedule(
+        _notificationId,
+        'Safar',
+        settings.message.trim().isEmpty ? defaultMessage : settings.message,
+        _nextInstance(settings.hour, settings.minute),
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'daily_reminder',
+            'Daily reminders',
+            channelDescription: 'Daily Safar diary reminder',
+            importance: Importance.defaultImportance,
+            priority: Priority.defaultPriority,
+          ),
         ),
-      ),
-      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
-      matchDateTimeComponents: DateTimeComponents.time,
-    );
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        matchDateTimeComponents: DateTimeComponents.time,
+      );
+    } catch (_) {
+      if (throwOnError) rethrow;
+    }
   }
 
-  Future<void> cancel() => _plugin.cancel(_notificationId);
+  Future<void> cancel({bool throwOnError = true}) async {
+    try {
+      await _plugin.cancel(_notificationId);
+    } catch (_) {
+      if (throwOnError) rethrow;
+    }
+  }
 
   tz.TZDateTime _nextInstance(int hour, int minute) {
     final now = tz.TZDateTime.now(tz.local);
