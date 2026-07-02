@@ -36,8 +36,8 @@ class ReminderService {
     if (_initialized) return;
     tz.initializeTimeZones();
     try {
-      final zoneName = await FlutterTimezone.getLocalTimezone();
-      tz.setLocalLocation(tz.getLocation(zoneName));
+      final timezone = await FlutterTimezone.getLocalTimezone();
+      tz.setLocalLocation(tz.getLocation(timezone.identifier));
     } catch (_) {
       tz.setLocalLocation(tz.getLocation('UTC'));
     }
