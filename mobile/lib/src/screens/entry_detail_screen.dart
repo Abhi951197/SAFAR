@@ -182,17 +182,30 @@ class _EntryDetailScreenState extends State<EntryDetailScreen> {
                       .headlineSmall
                       ?.copyWith(fontWeight: FontWeight.w900)),
               const SizedBox(height: 8),
-              Row(
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  Text(DateFormat('MMM d, yyyy').format(_entry.entryDate),
-                      style: const TextStyle(color: AppTheme.textSecondary)),
-                  const SizedBox(width: 8),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text(
+                      DateFormat('MMM d, yyyy').format(_entry.entryDate),
+                      style: const TextStyle(color: AppTheme.textSecondary),
+                    ),
+                  ),
                   Chip(
-                      label: Text(_entry.entryType == 'full'
-                          ? 'Full Diary'
-                          : 'Quick Diary')),
-                  const Spacer(),
+                    label: Text(_entry.entryType == 'full'
+                        ? 'Full Diary'
+                        : 'Quick Diary'),
+                  ),
                   OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: Colors.black,
+                      side: const BorderSide(color: Colors.black),
+                      visualDensity: VisualDensity.compact,
+                    ),
                     onPressed: _summarizing ? null : _summarize,
                     icon: _summarizing
                         ? const SizedBox.square(
@@ -428,26 +441,84 @@ class _FullscreenMediaViewerState extends State<_FullscreenMediaViewer> {
         onPageChanged: (value) => setState(() => _index = value),
         itemBuilder: (context, index) {
           final item = widget.media[index];
-          if (item.mediaType == 'video') {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: _VideoPlayerCard(media: item, darkMode: true),
-              ),
-            );
-          }
-          return InteractiveViewer(
-            minScale: 1,
-            maxScale: 4,
-            child: Center(
-              child: Hero(
-                tag: index == 0 ? 'entry-media-${item.url}' : item.url,
-                child: EncryptedMediaImage(media: item, fit: BoxFit.contain),
-              ),
-            ),
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              final size = MediaQuery.sizeOf(context);
+              final maxWidth = constraints.maxWidth.isFinite
+                  ? constraints.maxWidth
+                  : size.width;
+              final maxHeight = constraints.maxHeight.isFinite
+                  ? constraints.maxHeight
+                  : size.height;
+              if (item.mediaType == 'video') {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: maxWidth,
+                        maxHeight: maxHeight,
+                      ),
+                      child: _VideoPlayerCard(media: item, darkMode: true),
+                    ),
+                  ),
+                );
+              }
+              return InteractiveViewer(
+                minScale: 1,
+                maxScale: 4,
+                child: Center(
+                  child: SizedBox(
+                    width: maxWidth,
+                    height: maxHeight,
+                    child: Hero(
+                      tag: index == 0 ? 'entry-media-${item.url}' : item.url,
+                      child:
+                          EncryptedMediaImage(media: item, fit: BoxFit.contain),
+                    ),
+                  ),
+                ),
+              );
+            },
           );
         },
       ),
+    );
+  }
+}
+
+class _BoundedVideoFrame extends StatelessWidget {
+  const _BoundedVideoFrame({
+    required this.aspectRatio,
+    required this.child,
+  });
+
+  final double aspectRatio;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final fallbackWidth = MediaQuery.sizeOf(context).width;
+        final width = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : fallbackWidth;
+        final fallbackHeight = width / aspectRatio;
+        final height = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : fallbackHeight;
+        final fittedWidth =
+            height * aspectRatio > width ? width : height * aspectRatio;
+        final fittedHeight = fittedWidth / aspectRatio;
+        return Center(
+          child: SizedBox(
+            width: fittedWidth,
+            height: fittedHeight,
+            child: child,
+          ),
+        );
+      },
     );
   }
 }
@@ -651,56 +722,58 @@ class _VideoPlayerCardState extends State<_VideoPlayerCard> {
           return const SizedBox(
               height: 190, child: Center(child: CircularProgressIndicator()));
         }
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(14),
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              AspectRatio(
-                aspectRatio: controller.value.aspectRatio == 0
-                    ? 16 / 9
-                    : controller.value.aspectRatio,
-                child: VideoPlayer(controller),
-              ),
-              Positioned.fill(
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: () {
-                      setState(() {
-                        controller.value.isPlaying
-                            ? controller.pause()
-                            : controller.play();
-                      });
-                    },
-                    child: Center(
-                      child: AnimatedOpacity(
-                        opacity: controller.value.isPlaying ? 0 : 1,
-                        duration: const Duration(milliseconds: 160),
-                        child: Container(
-                          width: 58,
-                          height: 58,
-                          decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.52),
-                              shape: BoxShape.circle),
-                          child: const Icon(Icons.play_arrow,
-                              color: Colors.white, size: 34),
+        final aspectRatio = controller.value.aspectRatio == 0
+            ? 16 / 9
+            : controller.value.aspectRatio;
+        return _BoundedVideoFrame(
+          aspectRatio: aspectRatio,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: Stack(
+              fit: StackFit.expand,
+              alignment: Alignment.center,
+              children: [
+                VideoPlayer(controller),
+                Positioned.fill(
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () {
+                        setState(() {
+                          controller.value.isPlaying
+                              ? controller.pause()
+                              : controller.play();
+                        });
+                      },
+                      child: Center(
+                        child: AnimatedOpacity(
+                          opacity: controller.value.isPlaying ? 0 : 1,
+                          duration: const Duration(milliseconds: 160),
+                          child: Container(
+                            width: 58,
+                            height: 58,
+                            decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.52),
+                                shape: BoxShape.circle),
+                            child: const Icon(Icons.play_arrow,
+                                color: Colors.white, size: 34),
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: VideoProgressIndicator(controller,
-                    allowScrubbing: true,
-                    colors: const VideoProgressColors(
-                        playedColor: AppTheme.primary)),
-              ),
-            ],
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: VideoProgressIndicator(controller,
+                      allowScrubbing: true,
+                      colors: const VideoProgressColors(
+                          playedColor: AppTheme.primary)),
+                ),
+              ],
+            ),
           ),
         );
       },

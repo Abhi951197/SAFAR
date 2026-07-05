@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../models/diary_entry.dart';
@@ -24,7 +26,7 @@ class EncryptedMediaImage extends StatelessWidget {
         fit: fit,
       );
     }
-    return FutureBuilder(
+    return FutureBuilder<Uint8List>(
       future: MediaEncryptionService.instance.decryptMedia(media),
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
