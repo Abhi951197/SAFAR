@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Integer, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Integer, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -59,6 +59,11 @@ class EntryMedia(Base):
     url: Mapped[str] = mapped_column(Text)
     public_id: Mapped[str | None] = mapped_column(Text)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    encrypted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    encryption_nonce: Mapped[str | None] = mapped_column(Text)
+    encryption_version: Mapped[int | None] = mapped_column(Integer)
+    content_type: Mapped[str | None] = mapped_column(Text)
+    size_bytes: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     entry: Mapped[DiaryEntry] = relationship(back_populates="media")

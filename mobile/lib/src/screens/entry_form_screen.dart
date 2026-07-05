@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/diary_entry.dart';
 import '../services/api_client.dart';
 import '../services/diary_repository.dart';
+import '../services/media_encryption_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_chrome.dart';
 
@@ -54,6 +55,7 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
   bool _recording = false;
   String? _uploadLabel;
   double? _uploadProgress;
+  int _selectedMediaBytes = 0;
   String? _aiAction;
   List<String> _titleSuggestions = [];
   Timer? _recordingTimer;
@@ -118,6 +120,7 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
       return;
     }
     setState(() => _imageFiles.addAll(picked.take(remaining)));
+    _refreshSelectedMediaSize();
     if (picked.length > remaining) {
       _showLimit('Only the first $remaining image(s) were added.');
     }
@@ -135,6 +138,7 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
         source: ImageSource.camera, imageQuality: 80, maxWidth: 1600);
     if (picked != null) {
       setState(() => _imageFiles.add(picked));
+      _refreshSelectedMediaSize();
     }
   }
 
@@ -149,6 +153,7 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
         source: source, maxDuration: const Duration(seconds: 10));
     if (picked != null) {
       setState(() => _videoFiles.add(picked));
+      _refreshSelectedMediaSize();
     }
   }
 
@@ -202,6 +207,7 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
             XFile(path, name: 'safar-audio.${kIsWeb ? 'webm' : 'm4a'}');
       }
     });
+    _refreshSelectedMediaSize();
   }
 
   void _showLimit(String message) {
@@ -217,14 +223,17 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
 
   void _removeImageFile(int index) {
     setState(() => _imageFiles.removeAt(index));
+    _refreshSelectedMediaSize();
   }
 
   void _removeVideoFile(int index) {
     setState(() => _videoFiles.removeAt(index));
+    _refreshSelectedMediaSize();
   }
 
   void _removeAudioFile() {
     setState(() => _audioFile = null);
+    _refreshSelectedMediaSize();
   }
 
   void _setUploadProgress(String label, int sentBytes, int totalBytes) {
@@ -233,6 +242,83 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
       _uploadLabel = label;
       _uploadProgress = totalBytes == 0 ? null : sentBytes / totalBytes;
     });
+  }
+
+  Future<void> _refreshSelectedMediaSize() async {
+    final files = <XFile>[..._imageFiles, ..._videoFiles];
+    if (_audioFile != null) files.add(_audioFile!);
+    var total = 0;
+    for (final file in files) {
+      try {
+        total += await file.length();
+      } catch (_) {
+        // Size is only a UI hint; ignore files that cannot report length yet.
+      }
+    }
+    if (mounted) setState(() => _selectedMediaBytes = total);
+  }
+
+  Future<EntryMedia> _encryptAndUploadMedia({
+    required XFile file,
+    required String mediaType,
+    required int sortOrder,
+    required String label,
+  }) async {
+    setState(() {
+      _uploadLabel = 'Encrypting $label';
+      _uploadProgress = null;
+    });
+    final encrypted =
+        await MediaEncryptionService.instance.encrypt(await file.readAsBytes());
+    final uploaded = await widget.api.uploadEncryptedMedia(
+      bytes: encrypted.bytes,
+      filename: '${file.name}.enc',
+      mediaType: mediaType,
+      contentType: _contentTypeFor(file.name, mediaType),
+      onProgress: (sent, total) =>
+          _setUploadProgress('Uploading encrypted $label', sent, total),
+    );
+    return EntryMedia(
+      mediaType: mediaType,
+      url: uploaded['url'] as String,
+      publicId: uploaded['public_id'] as String?,
+      sortOrder: sortOrder,
+      encrypted: true,
+      encryptionNonce: encrypted.nonce,
+      encryptionVersion: encrypted.version,
+      contentType: uploaded['content_type'] as String?,
+      sizeBytes: uploaded['size_bytes'] as int?,
+    );
+  }
+
+  String _contentTypeFor(String filename, String mediaType) {
+    if (mediaType == 'image') return 'image/${_imageSubtype(filename)}';
+    if (mediaType == 'video') return 'video/${_videoSubtype(filename)}';
+    return 'audio/${_audioSubtype(filename)}';
+  }
+
+  String _imageSubtype(String filename) {
+    final lower = filename.toLowerCase();
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'jpeg';
+    if (lower.endsWith('.webp')) return 'webp';
+    return 'png';
+  }
+
+  String _videoSubtype(String filename) {
+    final lower = filename.toLowerCase();
+    if (lower.endsWith('.mov')) return 'quicktime';
+    if (lower.endsWith('.webm')) return 'webm';
+    return 'mp4';
+  }
+
+  String _audioSubtype(String filename) {
+    final lower = filename.toLowerCase();
+    if (lower.endsWith('.mp3')) return 'mpeg';
+    if (lower.endsWith('.m4a')) return 'mp4';
+    if (lower.endsWith('.aac')) return 'aac';
+    if (lower.endsWith('.wav')) return 'wav';
+    if (lower.endsWith('.ogg')) return 'ogg';
+    return 'webm';
   }
 
   Future<void> _showMediaPicker() async {
@@ -314,42 +400,33 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
       final media = <EntryMedia>[..._existingMedia];
       for (var i = 0; i < _imageFiles.length; i++) {
         final file = _imageFiles[i];
-        final uploaded = await widget.api.uploadImage(
-          file,
-          onProgress: (sent, total) => _setUploadProgress(
-              'Uploading image ${i + 1}/${_imageFiles.length}', sent, total),
+        final uploaded = await _encryptAndUploadMedia(
+          file: file,
+          mediaType: 'image',
+          sortOrder: media.length,
+          label: 'image ${i + 1}/${_imageFiles.length}',
         );
-        media.add(EntryMedia(
-            mediaType: 'image',
-            url: uploaded['image_url']!,
-            publicId: uploaded['image_public_id'],
-            sortOrder: media.length));
+        media.add(uploaded);
       }
       for (var i = 0; i < _videoFiles.length; i++) {
         final file = _videoFiles[i];
-        final uploaded = await widget.api.uploadVideo(
-          file,
-          onProgress: (sent, total) => _setUploadProgress(
-              'Uploading video ${i + 1}/${_videoFiles.length}', sent, total),
+        final uploaded = await _encryptAndUploadMedia(
+          file: file,
+          mediaType: 'video',
+          sortOrder: media.length,
+          label: 'video ${i + 1}/${_videoFiles.length}',
         );
-        media.add(EntryMedia(
-            mediaType: 'video',
-            url: uploaded['url']!,
-            publicId: uploaded['public_id'],
-            sortOrder: media.length));
+        media.add(uploaded);
       }
       if (_audioFile != null) {
-        final uploaded = await widget.api.uploadAudio(
-          _audioFile!,
-          onProgress: (sent, total) =>
-              _setUploadProgress('Uploading audio', sent, total),
+        final uploaded = await _encryptAndUploadMedia(
+          file: _audioFile!,
+          mediaType: 'audio',
+          sortOrder: media.length,
+          label: 'audio',
         );
         media.removeWhere((item) => item.mediaType == 'audio');
-        media.add(EntryMedia(
-            mediaType: 'audio',
-            url: uploaded['url']!,
-            publicId: uploaded['public_id'],
-            sortOrder: media.length));
+        media.add(uploaded);
       }
       final orderedMedia = [
         for (var i = 0; i < media.length; i++)
@@ -357,7 +434,12 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
               mediaType: media[i].mediaType,
               url: media[i].url,
               publicId: media[i].publicId,
-              sortOrder: i),
+              sortOrder: i,
+              encrypted: media[i].encrypted,
+              encryptionNonce: media[i].encryptionNonce,
+              encryptionVersion: media[i].encryptionVersion,
+              contentType: media[i].contentType,
+              sizeBytes: media[i].sizeBytes),
       ];
       final firstImage = _firstMedia(orderedMedia, 'image');
       final firstVideo = _firstMedia(orderedMedia, 'video');
@@ -381,7 +463,12 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
                   'media_type': item.mediaType,
                   'url': item.url,
                   'public_id': item.publicId,
-                  'sort_order': item.sortOrder
+                  'sort_order': item.sortOrder,
+                  'encrypted': item.encrypted,
+                  'encryption_nonce': item.encryptionNonce,
+                  'encryption_version': item.encryptionVersion,
+                  'content_type': item.contentType,
+                  'size_bytes': item.sizeBytes,
                 })
             .toList(),
         'entry_date': DateFormat('yyyy-MM-dd').format(_entryDate),
@@ -893,6 +980,7 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
                                 .any((item) => item.mediaType == 'audio') ||
                             _audioFile != null,
                         recording: _recording,
+                        selectedBytes: _selectedMediaBytes,
                       ),
                     ],
                   ),
@@ -1307,12 +1395,14 @@ class _MediaStatus extends StatelessWidget {
     required this.videoCount,
     required this.hasAudio,
     required this.recording,
+    required this.selectedBytes,
   });
 
   final int imageCount;
   final int videoCount;
   final bool hasAudio;
   final bool recording;
+  final int selectedBytes;
 
   @override
   Widget build(BuildContext context) {
@@ -1332,10 +1422,32 @@ class _MediaStatus extends StatelessWidget {
     }
     if (items.isEmpty) {
       return const Text(
-          'Add up to 10 images, 3 videos, and one audio note. Max 100 MB each.',
+          'Add up to 10 images, 3 videos, and one audio note. Media is encrypted before upload.',
           style: TextStyle(color: AppTheme.textSecondary, fontSize: 12));
     }
-    return Wrap(spacing: 8, runSpacing: 8, children: items);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(spacing: 8, runSpacing: 8, children: items),
+        if (selectedBytes > 0) ...[
+          const SizedBox(height: 8),
+          Text('Selected upload size: ${_formatBytes(selectedBytes)}',
+              style:
+                  const TextStyle(color: AppTheme.textSecondary, fontSize: 12)),
+        ],
+      ],
+    );
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes >= 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+    }
+    if (bytes >= 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    if (bytes >= 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '$bytes B';
   }
 }
 

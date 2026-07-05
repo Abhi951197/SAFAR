@@ -10,6 +10,11 @@ class EntryMediaWrite(BaseModel):
     url: str
     public_id: str | None = None
     sort_order: int = Field(default=0, ge=0)
+    encrypted: bool = False
+    encryption_nonce: str | None = None
+    encryption_version: int | None = None
+    content_type: str | None = None
+    size_bytes: int | None = Field(default=None, ge=0)
 
 
 class EntryMediaRead(EntryMediaWrite):

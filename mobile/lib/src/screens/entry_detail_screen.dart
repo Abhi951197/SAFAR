@@ -1,12 +1,16 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models/diary_entry.dart';
 import '../services/api_client.dart';
 import '../services/diary_repository.dart';
+import '../services/media_encryption_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_chrome.dart';
 import 'entry_form_screen.dart';
@@ -18,6 +22,33 @@ Future<void> _openDownloadUrl(BuildContext context, String url) async {
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text('Could not open media.')));
   }
+}
+
+Future<File> _decryptedTempFile(EntryMedia media) async {
+  final bytes = await MediaEncryptionService.instance.decryptMedia(media);
+  final directory = await getTemporaryDirectory();
+  final extension = _extensionFor(media);
+  final safeId = (media.id ?? media.url.hashCode.toString())
+      .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+  final file = File('${directory.path}/safar-$safeId$extension');
+  await file.writeAsBytes(bytes, flush: true);
+  return file;
+}
+
+String _extensionFor(EntryMedia media) {
+  final type = media.contentType ?? '';
+  if (type.contains('png')) return '.png';
+  if (type.contains('webp')) return '.webp';
+  if (type.contains('jpeg') || type.contains('jpg')) return '.jpg';
+  if (type.contains('quicktime')) return '.mov';
+  if (type.contains('webm')) return '.webm';
+  if (type.contains('mp4')) return '.mp4';
+  if (type.contains('mpeg')) return '.mp3';
+  if (type.contains('wav')) return '.wav';
+  if (type.contains('ogg')) return '.ogg';
+  if (media.mediaType == 'image') return '.jpg';
+  if (media.mediaType == 'audio') return '.m4a';
+  return '.mp4';
 }
 
 class EntryDetailScreen extends StatefulWidget {
@@ -124,7 +155,7 @@ class _EntryDetailScreenState extends State<EntryDetailScreen> {
                 const SizedBox(height: 16),
                 ...audios.map((media) => Padding(
                       padding: const EdgeInsets.only(bottom: 12),
-                      child: _AudioPlayerCard(url: media.url),
+                      child: _AudioPlayerCard(media: media),
                     )),
               ],
               if (visualMedia.isNotEmpty) ...[
@@ -294,11 +325,49 @@ class _MediaPreview extends StatelessWidget {
         ],
       );
     }
-    return Image.network(
-      media.url,
-      width: double.infinity,
-      height: double.infinity,
-      fit: BoxFit.cover,
+    return _ImageMediaView(media: media, fit: BoxFit.cover);
+  }
+}
+
+class _ImageMediaView extends StatelessWidget {
+  const _ImageMediaView({required this.media, required this.fit});
+
+  final EntryMedia media;
+  final BoxFit fit;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!media.encrypted) {
+      return Image.network(
+        media.url,
+        width: double.infinity,
+        height: double.infinity,
+        fit: fit,
+      );
+    }
+    return FutureBuilder(
+      future: MediaEncryptionService.instance.decryptMedia(media),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const ColoredBox(
+            color: Color(0xFF111827),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snapshot.hasError || !snapshot.hasData) {
+          return const ColoredBox(
+            color: Color(0xFF111827),
+            child: Center(
+                child: Icon(Icons.lock_outline, color: Colors.white, size: 36)),
+          );
+        }
+        return Image.memory(
+          snapshot.data!,
+          width: double.infinity,
+          height: double.infinity,
+          fit: fit,
+        );
+      },
     );
   }
 }
@@ -338,8 +407,9 @@ class _FullscreenMediaViewerState extends State<_FullscreenMediaViewer> {
         title: Text('${_index + 1} / ${widget.media.length}'),
         actions: [
           IconButton(
-            onPressed: () =>
-                _openDownloadUrl(context, widget.media[_index].url),
+            onPressed: widget.media[_index].encrypted
+                ? null
+                : () => _openDownloadUrl(context, widget.media[_index].url),
             icon: const Icon(Icons.download_outlined),
             tooltip: 'Download',
           ),
@@ -355,7 +425,7 @@ class _FullscreenMediaViewerState extends State<_FullscreenMediaViewer> {
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(12),
-                child: _VideoPlayerCard(url: item.url, darkMode: true),
+                child: _VideoPlayerCard(media: item, darkMode: true),
               ),
             );
           }
@@ -365,11 +435,7 @@ class _FullscreenMediaViewerState extends State<_FullscreenMediaViewer> {
             child: Center(
               child: Hero(
                 tag: index == 0 ? 'entry-media-${item.url}' : item.url,
-                child: Image.network(
-                  item.url,
-                  width: double.infinity,
-                  fit: BoxFit.contain,
-                ),
+                child: _ImageMediaView(media: item, fit: BoxFit.contain),
               ),
             ),
           );
@@ -380,9 +446,9 @@ class _FullscreenMediaViewerState extends State<_FullscreenMediaViewer> {
 }
 
 class _AudioPlayerCard extends StatefulWidget {
-  const _AudioPlayerCard({required this.url});
+  const _AudioPlayerCard({required this.media});
 
-  final String url;
+  final EntryMedia media;
 
   @override
   State<_AudioPlayerCard> createState() => _AudioPlayerCardState();
@@ -410,7 +476,12 @@ class _AudioPlayerCardState extends State<_AudioPlayerCard> {
 
   Future<void> _load() async {
     try {
-      await _player.setUrl(widget.url);
+      if (widget.media.encrypted) {
+        final file = await _decryptedTempFile(widget.media);
+        await _player.setFilePath(file.path);
+      } else {
+        await _player.setUrl(widget.media.url);
+      }
     } catch (error) {
       _error = error.toString();
     } finally {
@@ -478,7 +549,9 @@ class _AudioPlayerCardState extends State<_AudioPlayerCard> {
                   ),
                 ),
                 IconButton(
-                  onPressed: () => _openDownloadUrl(context, widget.url),
+                  onPressed: widget.media.encrypted
+                      ? null
+                      : () => _openDownloadUrl(context, widget.media.url),
                   icon: const Icon(Icons.download_outlined),
                   tooltip: 'Download audio',
                 ),
@@ -517,9 +590,9 @@ class _Fact extends StatelessWidget {
 }
 
 class _VideoPlayerCard extends StatefulWidget {
-  const _VideoPlayerCard({required this.url, this.darkMode = false});
+  const _VideoPlayerCard({required this.media, this.darkMode = false});
 
-  final String url;
+  final EntryMedia media;
   final bool darkMode;
 
   @override
@@ -527,20 +600,30 @@ class _VideoPlayerCard extends StatefulWidget {
 }
 
 class _VideoPlayerCardState extends State<_VideoPlayerCard> {
-  late final VideoPlayerController _controller;
+  VideoPlayerController? _controller;
   late final Future<void> _initialize;
 
   @override
   void initState() {
     super.initState();
-    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url));
-    _initialize = _controller.initialize();
-    _controller.setLooping(false);
+    _initialize = _setup();
+  }
+
+  Future<void> _setup() async {
+    if (widget.media.encrypted) {
+      final file = await _decryptedTempFile(widget.media);
+      _controller = VideoPlayerController.file(file);
+    } else {
+      _controller =
+          VideoPlayerController.networkUrl(Uri.parse(widget.media.url));
+    }
+    await _controller!.initialize();
+    await _controller!.setLooping(false);
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _controller?.dispose();
     super.dispose();
   }
 
@@ -553,7 +636,7 @@ class _VideoPlayerCardState extends State<_VideoPlayerCard> {
           return const SizedBox(
               height: 190, child: Center(child: CircularProgressIndicator()));
         }
-        if (snapshot.hasError || _controller.value.hasError) {
+        if (snapshot.hasError || (_controller?.value.hasError ?? false)) {
           return Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -562,12 +645,17 @@ class _VideoPlayerCardState extends State<_VideoPlayerCard> {
                 const Text('Video could not be loaded.',
                     style: TextStyle(fontWeight: FontWeight.w800)),
                 const SizedBox(height: 6),
-                Text(widget.url,
+                Text(widget.media.url,
                     style: const TextStyle(
                         color: AppTheme.textSecondary, fontSize: 12)),
               ],
             ),
           );
+        }
+        final controller = _controller;
+        if (controller == null) {
+          return const SizedBox(
+              height: 190, child: Center(child: CircularProgressIndicator()));
         }
         return ClipRRect(
           borderRadius: BorderRadius.circular(14),
@@ -575,10 +663,10 @@ class _VideoPlayerCardState extends State<_VideoPlayerCard> {
             alignment: Alignment.center,
             children: [
               AspectRatio(
-                aspectRatio: _controller.value.aspectRatio == 0
+                aspectRatio: controller.value.aspectRatio == 0
                     ? 16 / 9
-                    : _controller.value.aspectRatio,
-                child: VideoPlayer(_controller),
+                    : controller.value.aspectRatio,
+                child: VideoPlayer(controller),
               ),
               Positioned.fill(
                 child: Material(
@@ -586,14 +674,14 @@ class _VideoPlayerCardState extends State<_VideoPlayerCard> {
                   child: InkWell(
                     onTap: () {
                       setState(() {
-                        _controller.value.isPlaying
-                            ? _controller.pause()
-                            : _controller.play();
+                        controller.value.isPlaying
+                            ? controller.pause()
+                            : controller.play();
                       });
                     },
                     child: Center(
                       child: AnimatedOpacity(
-                        opacity: _controller.value.isPlaying ? 0 : 1,
+                        opacity: controller.value.isPlaying ? 0 : 1,
                         duration: const Duration(milliseconds: 160),
                         child: Container(
                           width: 58,
@@ -613,7 +701,7 @@ class _VideoPlayerCardState extends State<_VideoPlayerCard> {
                 left: 0,
                 right: 0,
                 bottom: 0,
-                child: VideoProgressIndicator(_controller,
+                child: VideoProgressIndicator(controller,
                     allowScrubbing: true,
                     colors: const VideoProgressColors(
                         playedColor: AppTheme.primary)),

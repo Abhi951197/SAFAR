@@ -6,6 +6,11 @@ class EntryMedia {
     required this.url,
     this.publicId,
     required this.sortOrder,
+    this.encrypted = false,
+    this.encryptionNonce,
+    this.encryptionVersion,
+    this.contentType,
+    this.sizeBytes,
     this.createdAt,
   });
 
@@ -15,6 +20,11 @@ class EntryMedia {
   final String url;
   final String? publicId;
   final int sortOrder;
+  final bool encrypted;
+  final String? encryptionNonce;
+  final int? encryptionVersion;
+  final String? contentType;
+  final int? sizeBytes;
   final DateTime? createdAt;
 
   factory EntryMedia.fromJson(Map<String, dynamic> json) {
@@ -25,6 +35,11 @@ class EntryMedia {
       url: json['url'] as String,
       publicId: json['public_id'] as String?,
       sortOrder: json['sort_order'] as int? ?? 0,
+      encrypted: json['encrypted'] as bool? ?? false,
+      encryptionNonce: json['encryption_nonce'] as String?,
+      encryptionVersion: json['encryption_version'] as int?,
+      contentType: json['content_type'] as String?,
+      sizeBytes: json['size_bytes'] as int?,
       createdAt: json['created_at'] == null
           ? null
           : DateTime.parse(json['created_at'] as String),
@@ -39,6 +54,11 @@ class EntryMedia {
       'url': url,
       'public_id': publicId,
       'sort_order': sortOrder,
+      'encrypted': encrypted,
+      'encryption_nonce': encryptionNonce,
+      'encryption_version': encryptionVersion,
+      'content_type': contentType,
+      'size_bytes': sizeBytes,
       if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
     };
   }
@@ -180,7 +200,8 @@ class DiaryEntry {
           mediaType: type,
           url: url,
           publicId: publicId,
-          sortOrder: merged.length));
+          sortOrder: merged.length,
+          encrypted: false));
     }
 
     addLegacy('image', imageUrl, imagePublicId);

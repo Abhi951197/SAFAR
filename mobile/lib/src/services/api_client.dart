@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
@@ -166,6 +167,31 @@ class ApiClient {
         onProgress: onProgress,
       );
 
+  Future<Map<String, dynamic>> uploadEncryptedMedia({
+    required Uint8List bytes,
+    required String filename,
+    required String mediaType,
+    required String contentType,
+    UploadProgressCallback? onProgress,
+  }) async {
+    final token = Supabase.instance.client.auth.currentSession?.accessToken;
+    if (token == null) throw ApiException('Please log in again.');
+    final response = await _sendMultipartBytes(
+      path: '/upload/encrypted',
+      fieldName: 'file',
+      bytes: bytes,
+      filename: filename,
+      token: token,
+      mediaType: MediaType('application', 'octet-stream'),
+      fields: {
+        'media_type': mediaType,
+        'content_type': contentType,
+      },
+      onProgress: onProgress,
+    );
+    return _decode(response);
+  }
+
   Future<Map<String, String>> _uploadMedia({
     required XFile file,
     required String path,
@@ -212,6 +238,44 @@ class ApiClient {
       stream,
       totalBytes,
       filename: file.name,
+      contentType: mediaType,
+    ));
+    final streamed = await request.send();
+    return http.Response.fromStream(streamed);
+  }
+
+  Future<http.Response> _sendMultipartBytes({
+    required String path,
+    required String fieldName,
+    required Uint8List bytes,
+    required String filename,
+    required String token,
+    required MediaType mediaType,
+    Map<String, String> fields = const {},
+    UploadProgressCallback? onProgress,
+  }) async {
+    final totalBytes = bytes.length;
+    var sentBytes = 0;
+    const chunkSize = 64 * 1024;
+    final stream = Stream<List<int>>.fromIterable([
+      for (var start = 0; start < bytes.length; start += chunkSize)
+        bytes.sublist(
+          start,
+          start + chunkSize > bytes.length ? bytes.length : start + chunkSize,
+        )
+    ]).map((chunk) {
+      sentBytes += chunk.length;
+      onProgress?.call(sentBytes, totalBytes);
+      return chunk;
+    });
+    final request = http.MultipartRequest('POST', _uri(path));
+    request.headers['Authorization'] = 'Bearer $token';
+    request.fields.addAll(fields);
+    request.files.add(http.MultipartFile(
+      fieldName,
+      stream,
+      totalBytes,
+      filename: filename,
       contentType: mediaType,
     ));
     final streamed = await request.send();

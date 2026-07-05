@@ -61,6 +61,11 @@ def _replace_media(entry: DiaryEntry, media: list[EntryMediaWrite]) -> None:
                 url=item.url,
                 public_id=item.public_id,
                 sort_order=item.sort_order if item.sort_order != 0 else index,
+                encrypted=item.encrypted,
+                encryption_nonce=item.encryption_nonce,
+                encryption_version=item.encryption_version,
+                content_type=item.content_type,
+                size_bytes=item.size_bytes,
             )
         )
 
