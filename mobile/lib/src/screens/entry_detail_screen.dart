@@ -1,9 +1,7 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
@@ -11,8 +9,10 @@ import '../models/diary_entry.dart';
 import '../services/api_client.dart';
 import '../services/diary_repository.dart';
 import '../services/media_encryption_service.dart';
+import '../services/media_playback_source.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_chrome.dart';
+import '../widgets/encrypted_media_image.dart';
 import 'entry_form_screen.dart';
 
 Future<void> _openDownloadUrl(BuildContext context, String url) async {
@@ -24,31 +24,26 @@ Future<void> _openDownloadUrl(BuildContext context, String url) async {
   }
 }
 
-Future<File> _decryptedTempFile(EntryMedia media) async {
-  final bytes = await MediaEncryptionService.instance.decryptMedia(media);
-  final directory = await getTemporaryDirectory();
-  final extension = _extensionFor(media);
-  final safeId = (media.id ?? media.url.hashCode.toString())
-      .replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
-  final file = File('${directory.path}/safar-$safeId$extension');
-  await file.writeAsBytes(bytes, flush: true);
-  return file;
-}
-
-String _extensionFor(EntryMedia media) {
-  final type = media.contentType ?? '';
-  if (type.contains('png')) return '.png';
-  if (type.contains('webp')) return '.webp';
-  if (type.contains('jpeg') || type.contains('jpg')) return '.jpg';
-  if (type.contains('quicktime')) return '.mov';
-  if (type.contains('webm')) return '.webm';
-  if (type.contains('mp4')) return '.mp4';
-  if (type.contains('mpeg')) return '.mp3';
-  if (type.contains('wav')) return '.wav';
-  if (type.contains('ogg')) return '.ogg';
-  if (media.mediaType == 'image') return '.jpg';
-  if (media.mediaType == 'audio') return '.m4a';
-  return '.mp4';
+Future<void> _downloadMedia(BuildContext context, EntryMedia media) async {
+  if (!media.encrypted) {
+    await _openDownloadUrl(context, media.url);
+    return;
+  }
+  try {
+    final bytes = await MediaEncryptionService.instance.decryptMedia(media);
+    await Share.shareXFiles([
+      XFile.fromData(
+        bytes,
+        mimeType: media.contentType,
+        name: 'safar-${media.mediaType}${extensionFor(media)}',
+      )
+    ]);
+  } catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.toString())));
+    }
+  }
 }
 
 class EntryDetailScreen extends StatefulWidget {
@@ -69,6 +64,7 @@ class EntryDetailScreen extends StatefulWidget {
 class _EntryDetailScreenState extends State<EntryDetailScreen> {
   late DiaryEntry _entry;
   bool _deleting = false;
+  bool _summarizing = false;
 
   @override
   void initState() {
@@ -103,6 +99,52 @@ class _EntryDetailScreenState extends State<EntryDetailScreen> {
     } finally {
       if (mounted) setState(() => _deleting = false);
     }
+  }
+
+  Future<void> _summarize() async {
+    final text = _summaryText();
+    if (text.trim().isEmpty) return;
+    setState(() => _summarizing = true);
+    try {
+      final summary = await widget.api.summarizeDiary(text);
+      if (!mounted) return;
+      await showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        builder: (context) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Summary',
+                    style:
+                        TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+                const SizedBox(height: 10),
+                Text(summary, style: const TextStyle(height: 1.45)),
+              ],
+            ),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _summarizing = false);
+    }
+  }
+
+  String _summaryText() {
+    if (_entry.entryType == 'full') return _entry.content ?? '';
+    return [
+      if (_entry.mood != null) 'Mood: ${_entry.mood}',
+      if (_entry.bestMoment != null) 'Best moment: ${_entry.bestMoment}',
+      if (_entry.challenge != null) 'Challenge: ${_entry.challenge}',
+    ].join('\n');
   }
 
   @override
@@ -149,6 +191,16 @@ class _EntryDetailScreenState extends State<EntryDetailScreen> {
                       label: Text(_entry.entryType == 'full'
                           ? 'Full Diary'
                           : 'Quick Diary')),
+                  const Spacer(),
+                  OutlinedButton.icon(
+                    onPressed: _summarizing ? null : _summarize,
+                    icon: _summarizing
+                        ? const SizedBox.square(
+                            dimension: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.auto_awesome, size: 16),
+                    label: const Text('Summarize'),
+                  ),
                 ],
               ),
               if (audios.isNotEmpty) ...[
@@ -325,50 +377,7 @@ class _MediaPreview extends StatelessWidget {
         ],
       );
     }
-    return _ImageMediaView(media: media, fit: BoxFit.cover);
-  }
-}
-
-class _ImageMediaView extends StatelessWidget {
-  const _ImageMediaView({required this.media, required this.fit});
-
-  final EntryMedia media;
-  final BoxFit fit;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!media.encrypted) {
-      return Image.network(
-        media.url,
-        width: double.infinity,
-        height: double.infinity,
-        fit: fit,
-      );
-    }
-    return FutureBuilder(
-      future: MediaEncryptionService.instance.decryptMedia(media),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
-          return const ColoredBox(
-            color: Color(0xFF111827),
-            child: Center(child: CircularProgressIndicator()),
-          );
-        }
-        if (snapshot.hasError || !snapshot.hasData) {
-          return const ColoredBox(
-            color: Color(0xFF111827),
-            child: Center(
-                child: Icon(Icons.lock_outline, color: Colors.white, size: 36)),
-          );
-        }
-        return Image.memory(
-          snapshot.data!,
-          width: double.infinity,
-          height: double.infinity,
-          fit: fit,
-        );
-      },
-    );
+    return EncryptedMediaImage(media: media, fit: BoxFit.cover);
   }
 }
 
@@ -407,9 +416,7 @@ class _FullscreenMediaViewerState extends State<_FullscreenMediaViewer> {
         title: Text('${_index + 1} / ${widget.media.length}'),
         actions: [
           IconButton(
-            onPressed: widget.media[_index].encrypted
-                ? null
-                : () => _openDownloadUrl(context, widget.media[_index].url),
+            onPressed: () => _downloadMedia(context, widget.media[_index]),
             icon: const Icon(Icons.download_outlined),
             tooltip: 'Download',
           ),
@@ -435,7 +442,7 @@ class _FullscreenMediaViewerState extends State<_FullscreenMediaViewer> {
             child: Center(
               child: Hero(
                 tag: index == 0 ? 'entry-media-${item.url}' : item.url,
-                child: _ImageMediaView(media: item, fit: BoxFit.contain),
+                child: EncryptedMediaImage(media: item, fit: BoxFit.contain),
               ),
             ),
           );
@@ -476,12 +483,7 @@ class _AudioPlayerCardState extends State<_AudioPlayerCard> {
 
   Future<void> _load() async {
     try {
-      if (widget.media.encrypted) {
-        final file = await _decryptedTempFile(widget.media);
-        await _player.setFilePath(file.path);
-      } else {
-        await _player.setUrl(widget.media.url);
-      }
+      await setAudioSource(_player, widget.media);
     } catch (error) {
       _error = error.toString();
     } finally {
@@ -549,9 +551,7 @@ class _AudioPlayerCardState extends State<_AudioPlayerCard> {
                   ),
                 ),
                 IconButton(
-                  onPressed: widget.media.encrypted
-                      ? null
-                      : () => _openDownloadUrl(context, widget.media.url),
+                  onPressed: () => _downloadMedia(context, widget.media),
                   icon: const Icon(Icons.download_outlined),
                   tooltip: 'Download audio',
                 ),
@@ -610,13 +610,7 @@ class _VideoPlayerCardState extends State<_VideoPlayerCard> {
   }
 
   Future<void> _setup() async {
-    if (widget.media.encrypted) {
-      final file = await _decryptedTempFile(widget.media);
-      _controller = VideoPlayerController.file(file);
-    } else {
-      _controller =
-          VideoPlayerController.networkUrl(Uri.parse(widget.media.url));
-    }
+    _controller = await createVideoController(widget.media);
     await _controller!.initialize();
     await _controller!.setLooping(false);
   }

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../models/diary_entry.dart';
 import '../theme/app_theme.dart';
+import 'encrypted_media_image.dart';
 
 class EntryCard extends StatelessWidget {
   const EntryCard({required this.entry, required this.onTap, super.key});
@@ -12,9 +13,9 @@ class EntryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final coverImage = entry.imageMedia.isNotEmpty
-        ? entry.imageMedia.first.url
-        : entry.imageUrl;
+    final coverMedia =
+        entry.imageMedia.isNotEmpty ? entry.imageMedia.first : null;
+    final coverImage = coverMedia == null ? entry.imageUrl : null;
     final hasVideo = entry.videoMedia.isNotEmpty || entry.videoUrl != null;
     final hasAudio = entry.audioMedia.isNotEmpty || entry.audioUrl != null;
     return Card(
@@ -34,8 +35,11 @@ class EntryCard extends StatelessWidget {
                   child: ColoredBox(
                     color: AppTheme.primary.withValues(alpha: 0.1),
                     child: coverImage == null
-                        ? const Icon(Icons.auto_stories,
-                            color: AppTheme.primary)
+                        ? coverMedia == null
+                            ? const Icon(Icons.auto_stories,
+                                color: AppTheme.primary)
+                            : EncryptedMediaImage(
+                                media: coverMedia, fit: BoxFit.cover)
                         : Image.network(
                             coverImage,
                             width: double.infinity,

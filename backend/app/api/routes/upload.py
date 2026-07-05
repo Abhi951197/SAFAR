@@ -1,5 +1,6 @@
 import cloudinary
 import cloudinary.uploader
+import tempfile
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -52,11 +53,21 @@ async def upload_encrypted_media(
         api_secret=settings.cloudinary_api_secret,
         secure=True,
     )
-    result = cloudinary.uploader.upload(
-        data,
-        folder=f"{settings.cloudinary_upload_folder}/{current_user.id}/encrypted/{media_type}",
-        resource_type="raw",
-    )
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".enc") as temp_file:
+            temp_file.write(data)
+            temp_file.flush()
+            result = cloudinary.uploader.upload_large(
+                temp_file.name,
+                folder=f"{settings.cloudinary_upload_folder}/{current_user.id}/encrypted/{media_type}",
+                resource_type="raw",
+                chunk_size=6 * 1024 * 1024,
+            )
+    except Exception as error:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Encrypted {media_type} upload failed: {error}",
+        ) from error
     return EncryptedMediaUploadRead(
         url=result["secure_url"],
         public_id=result["public_id"],
