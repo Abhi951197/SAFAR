@@ -12,8 +12,7 @@ router = APIRouter()
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 ALLOWED_VIDEO_TYPES = {"video/mp4", "video/quicktime", "video/webm"}
 ALLOWED_AUDIO_TYPES = {"audio/mpeg", "audio/mp4", "audio/aac", "audio/wav", "audio/webm", "audio/ogg"}
-MAX_IMAGE_BYTES = 5 * 1024 * 1024
-MAX_MEDIA_BYTES = 15 * 1024 * 1024
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 
 
 @router.post("/image", response_model=ImageUploadRead)
@@ -25,8 +24,8 @@ async def upload_image(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only JPG, PNG, and WEBP images are allowed")
 
     data = await image.read()
-    if len(data) > MAX_IMAGE_BYTES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image must be 5 MB or smaller")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image must be 100 MB or smaller")
 
     cloudinary.config(
         cloud_name=settings.cloudinary_cloud_name,
@@ -64,8 +63,8 @@ async def _upload_media(file: UploadFile, media_type: str, current_user: User) -
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported {media_type} file type")
 
     data = await file.read()
-    if len(data) > MAX_MEDIA_BYTES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{media_type.title()} must be 15 MB or smaller")
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{media_type.title()} must be 100 MB or smaller")
 
     cloudinary.config(
         cloud_name=settings.cloudinary_cloud_name,

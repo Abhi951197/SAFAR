@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../models/diary_entry.dart';
@@ -9,6 +10,15 @@ import '../services/diary_repository.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_chrome.dart';
 import 'entry_form_screen.dart';
+
+Future<void> _openDownloadUrl(BuildContext context, String url) async {
+  final uri = Uri.parse(url);
+  final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+  if (!opened && context.mounted) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('Could not open media.')));
+  }
+}
 
 class EntryDetailScreen extends StatefulWidget {
   const EntryDetailScreen(
@@ -326,6 +336,14 @@ class _FullscreenMediaViewerState extends State<_FullscreenMediaViewer> {
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         title: Text('${_index + 1} / ${widget.media.length}'),
+        actions: [
+          IconButton(
+            onPressed: () =>
+                _openDownloadUrl(context, widget.media[_index].url),
+            icon: const Icon(Icons.download_outlined),
+            tooltip: 'Download',
+          ),
+        ],
       ),
       body: PageView.builder(
         controller: _controller,
@@ -458,6 +476,11 @@ class _AudioPlayerCardState extends State<_AudioPlayerCard> {
                               color: AppTheme.textSecondary, fontSize: 12)),
                     ],
                   ),
+                ),
+                IconButton(
+                  onPressed: () => _openDownloadUrl(context, widget.url),
+                  icon: const Icon(Icons.download_outlined),
+                  tooltip: 'Download audio',
                 ),
               ],
             ),

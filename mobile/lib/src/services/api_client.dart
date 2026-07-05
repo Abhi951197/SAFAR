@@ -10,6 +10,8 @@ import '../config/app_config.dart';
 import '../models/diary_entry.dart';
 import '../models/user_profile.dart';
 
+typedef UploadProgressCallback = void Function(int sentBytes, int totalBytes);
+
 class ApiClient {
   ApiClient({http.Client? httpClient})
       : _httpClient = httpClient ?? http.Client();
@@ -119,19 +121,20 @@ class ApiClient {
     return (decoded['titles'] as List<dynamic>).cast<String>();
   }
 
-  Future<Map<String, String>> uploadImage(XFile file) async {
+  Future<Map<String, String>> uploadImage(
+    XFile file, {
+    UploadProgressCallback? onProgress,
+  }) async {
     final token = Supabase.instance.client.auth.currentSession?.accessToken;
     if (token == null) throw ApiException('Please log in again.');
-    final request = http.MultipartRequest('POST', _uri('/upload/image'));
-    request.headers['Authorization'] = 'Bearer $token';
-    request.files.add(http.MultipartFile.fromBytes(
-      'image',
-      await file.readAsBytes(),
-      filename: file.name,
-      contentType: MediaType('image', _imageSubtype(file.name)),
-    ));
-    final streamed = await request.send();
-    final response = await http.Response.fromStream(streamed);
+    final response = await _sendMultipart(
+      path: '/upload/image',
+      fieldName: 'image',
+      file: file,
+      token: token,
+      mediaType: MediaType('image', _imageSubtype(file.name)),
+      onProgress: onProgress,
+    );
     final decoded = _decode(response);
     return {
       'image_url': decoded['image_url'] as String,
@@ -139,18 +142,28 @@ class ApiClient {
     };
   }
 
-  Future<Map<String, String>> uploadVideo(XFile file) => _uploadMedia(
+  Future<Map<String, String>> uploadVideo(
+    XFile file, {
+    UploadProgressCallback? onProgress,
+  }) =>
+      _uploadMedia(
         file: file,
         path: '/upload/video',
         fieldName: 'video',
         mediaType: MediaType('video', _videoSubtype(file.name)),
+        onProgress: onProgress,
       );
 
-  Future<Map<String, String>> uploadAudio(XFile file) => _uploadMedia(
+  Future<Map<String, String>> uploadAudio(
+    XFile file, {
+    UploadProgressCallback? onProgress,
+  }) =>
+      _uploadMedia(
         file: file,
         path: '/upload/audio',
         fieldName: 'audio',
         mediaType: MediaType('audio', _audioSubtype(file.name)),
+        onProgress: onProgress,
       );
 
   Future<Map<String, String>> _uploadMedia({
@@ -158,24 +171,51 @@ class ApiClient {
     required String path,
     required String fieldName,
     required MediaType mediaType,
+    UploadProgressCallback? onProgress,
   }) async {
     final token = Supabase.instance.client.auth.currentSession?.accessToken;
     if (token == null) throw ApiException('Please log in again.');
-    final request = http.MultipartRequest('POST', _uri(path));
-    request.headers['Authorization'] = 'Bearer $token';
-    request.files.add(http.MultipartFile.fromBytes(
-      fieldName,
-      await file.readAsBytes(),
-      filename: file.name,
-      contentType: mediaType,
-    ));
-    final streamed = await request.send();
-    final response = await http.Response.fromStream(streamed);
+    final response = await _sendMultipart(
+      path: path,
+      fieldName: fieldName,
+      file: file,
+      token: token,
+      mediaType: mediaType,
+      onProgress: onProgress,
+    );
     final decoded = _decode(response);
     return {
       'url': decoded['url'] as String,
       'public_id': decoded['public_id'] as String,
     };
+  }
+
+  Future<http.Response> _sendMultipart({
+    required String path,
+    required String fieldName,
+    required XFile file,
+    required String token,
+    required MediaType mediaType,
+    UploadProgressCallback? onProgress,
+  }) async {
+    final totalBytes = await file.length();
+    var sentBytes = 0;
+    final stream = file.openRead().map((chunk) {
+      sentBytes += chunk.length;
+      onProgress?.call(sentBytes, totalBytes);
+      return chunk;
+    });
+    final request = http.MultipartRequest('POST', _uri(path));
+    request.headers['Authorization'] = 'Bearer $token';
+    request.files.add(http.MultipartFile(
+      fieldName,
+      stream,
+      totalBytes,
+      filename: file.name,
+      contentType: mediaType,
+    ));
+    final streamed = await request.send();
+    return http.Response.fromStream(streamed);
   }
 
   String _imageSubtype(String filename) {

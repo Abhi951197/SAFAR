@@ -23,6 +23,7 @@ class ReminderService {
 
   static final instance = ReminderService._();
   static const _notificationId = 4107;
+  static const _testNotificationId = 4108;
   static const _enabledKey = 'safar_reminder_enabled';
   static const _hourKey = 'safar_reminder_hour';
   static const _minuteKey = 'safar_reminder_minute';
@@ -109,6 +110,31 @@ class ReminderService {
     } catch (_) {
       if (throwOnError) rethrow;
     }
+  }
+
+  Future<void> showTestNotification() async {
+    await _plugin.show(
+      _testNotificationId,
+      'Safar test',
+      'Notifications are working on this device.',
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'daily_reminder',
+          'Daily reminders',
+          channelDescription: 'Daily Safar diary reminder',
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+      ),
+    );
+  }
+
+  Future<String> diagnosticSummary() async {
+    final android = _plugin.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>();
+    final enabled = await android?.areNotificationsEnabled();
+    final pending = await _plugin.pendingNotificationRequests();
+    return 'Notifications: ${enabled == false ? 'blocked' : 'allowed'} | Scheduled: ${pending.length}';
   }
 
   Future<void> cancel({bool throwOnError = true}) async {

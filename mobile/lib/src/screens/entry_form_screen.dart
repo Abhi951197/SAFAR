@@ -52,6 +52,8 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
   List<EntryMedia> _existingMedia = [];
   bool _saving = false;
   bool _recording = false;
+  String? _uploadLabel;
+  double? _uploadProgress;
   String? _aiAction;
   List<String> _titleSuggestions = [];
   Timer? _recordingTimer;
@@ -209,6 +211,30 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
     }
   }
 
+  void _removeExistingMedia(EntryMedia media) {
+    setState(() => _existingMedia.remove(media));
+  }
+
+  void _removeImageFile(int index) {
+    setState(() => _imageFiles.removeAt(index));
+  }
+
+  void _removeVideoFile(int index) {
+    setState(() => _videoFiles.removeAt(index));
+  }
+
+  void _removeAudioFile() {
+    setState(() => _audioFile = null);
+  }
+
+  void _setUploadProgress(String label, int sentBytes, int totalBytes) {
+    if (!mounted) return;
+    setState(() {
+      _uploadLabel = label;
+      _uploadProgress = totalBytes == 0 ? null : sentBytes / totalBytes;
+    });
+  }
+
   Future<void> _showMediaPicker() async {
     if (_recording) {
       await _toggleRecording();
@@ -279,19 +305,33 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
       return;
     }
     if (_recording) await _stopRecording();
-    setState(() => _saving = true);
+    setState(() {
+      _saving = true;
+      _uploadLabel = null;
+      _uploadProgress = null;
+    });
     try {
       final media = <EntryMedia>[..._existingMedia];
-      for (final file in _imageFiles) {
-        final uploaded = await widget.api.uploadImage(file);
+      for (var i = 0; i < _imageFiles.length; i++) {
+        final file = _imageFiles[i];
+        final uploaded = await widget.api.uploadImage(
+          file,
+          onProgress: (sent, total) => _setUploadProgress(
+              'Uploading image ${i + 1}/${_imageFiles.length}', sent, total),
+        );
         media.add(EntryMedia(
             mediaType: 'image',
             url: uploaded['image_url']!,
             publicId: uploaded['image_public_id'],
             sortOrder: media.length));
       }
-      for (final file in _videoFiles) {
-        final uploaded = await widget.api.uploadVideo(file);
+      for (var i = 0; i < _videoFiles.length; i++) {
+        final file = _videoFiles[i];
+        final uploaded = await widget.api.uploadVideo(
+          file,
+          onProgress: (sent, total) => _setUploadProgress(
+              'Uploading video ${i + 1}/${_videoFiles.length}', sent, total),
+        );
         media.add(EntryMedia(
             mediaType: 'video',
             url: uploaded['url']!,
@@ -299,7 +339,11 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
             sortOrder: media.length));
       }
       if (_audioFile != null) {
-        final uploaded = await widget.api.uploadAudio(_audioFile!);
+        final uploaded = await widget.api.uploadAudio(
+          _audioFile!,
+          onProgress: (sent, total) =>
+              _setUploadProgress('Uploading audio', sent, total),
+        );
         media.removeWhere((item) => item.mediaType == 'audio');
         media.add(EntryMedia(
             mediaType: 'audio',
@@ -360,7 +404,13 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
             .showSnackBar(SnackBar(content: Text(error.toString())));
       }
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _uploadLabel = null;
+          _uploadProgress = null;
+        });
+      }
     }
   }
 
@@ -790,11 +840,33 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
                       const SizedBox(height: 10),
                       _ImagePreviewGrid(
                         imageFiles: _imageFiles,
-                        imageUrls: _existingMedia
+                        existingImages: _existingMedia
                             .where((item) => item.mediaType == 'image')
-                            .map((item) => item.url)
                             .toList(),
+                        onRemoveExisting: _removeExistingMedia,
+                        onRemoveFile: _removeImageFile,
                       ),
+                      _AttachedMediaList(
+                        existingVideos: _existingMedia
+                            .where((item) => item.mediaType == 'video')
+                            .toList(),
+                        videoFiles: _videoFiles,
+                        existingAudios: _existingMedia
+                            .where((item) => item.mediaType == 'audio')
+                            .toList(),
+                        hasNewAudio: _audioFile != null,
+                        onRemoveExisting: _removeExistingMedia,
+                        onRemoveVideoFile: _removeVideoFile,
+                        onRemoveAudioFile: _removeAudioFile,
+                      ),
+                      if (_saving && _uploadLabel != null) ...[
+                        const SizedBox(height: 12),
+                        Text(_uploadLabel!,
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 6),
+                        LinearProgressIndicator(value: _uploadProgress),
+                      ],
                       const SizedBox(height: 10),
                       SizedBox(
                         width: double.infinity,
@@ -1027,14 +1099,21 @@ class _FloatingEnhancePill extends StatelessWidget {
 }
 
 class _ImagePreviewGrid extends StatelessWidget {
-  const _ImagePreviewGrid({required this.imageFiles, required this.imageUrls});
+  const _ImagePreviewGrid({
+    required this.imageFiles,
+    required this.existingImages,
+    required this.onRemoveExisting,
+    required this.onRemoveFile,
+  });
 
   final List<XFile> imageFiles;
-  final List<String> imageUrls;
+  final List<EntryMedia> existingImages;
+  final ValueChanged<EntryMedia> onRemoveExisting;
+  final ValueChanged<int> onRemoveFile;
 
   @override
   Widget build(BuildContext context) {
-    final total = imageUrls.length + imageFiles.length;
+    final total = existingImages.length + imageFiles.length;
     if (total == 0) {
       return Container(
         height: 140,
@@ -1054,24 +1133,145 @@ class _ImagePreviewGrid extends StatelessWidget {
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 3, crossAxisSpacing: 8, mainAxisSpacing: 8),
       itemBuilder: (context, index) {
-        return ClipOval(
-          child: DecoratedBox(
-            decoration:
-                BoxDecoration(color: AppTheme.primary.withValues(alpha: 0.08)),
-            child: index < imageUrls.length
-                ? Image.network(imageUrls[index], fit: BoxFit.cover)
-                : FutureBuilder(
-                    future: imageFiles[index - imageUrls.length].readAsBytes(),
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-                      return Image.memory(snapshot.data!, fit: BoxFit.cover);
-                    },
-                  ),
-          ),
+        final isExisting = index < existingImages.length;
+        final fileIndex = index - existingImages.length;
+        return _RemovableMediaTile(
+          onRemove: () => isExisting
+              ? onRemoveExisting(existingImages[index])
+              : onRemoveFile(fileIndex),
+          child: isExisting
+              ? Image.network(existingImages[index].url, fit: BoxFit.cover)
+              : FutureBuilder(
+                  future: imageFiles[fileIndex].readAsBytes(),
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    return Image.memory(snapshot.data!, fit: BoxFit.cover);
+                  },
+                ),
         );
       },
+    );
+  }
+}
+
+class _AttachedMediaList extends StatelessWidget {
+  const _AttachedMediaList({
+    required this.existingVideos,
+    required this.videoFiles,
+    required this.existingAudios,
+    required this.hasNewAudio,
+    required this.onRemoveExisting,
+    required this.onRemoveVideoFile,
+    required this.onRemoveAudioFile,
+  });
+
+  final List<EntryMedia> existingVideos;
+  final List<XFile> videoFiles;
+  final List<EntryMedia> existingAudios;
+  final bool hasNewAudio;
+  final ValueChanged<EntryMedia> onRemoveExisting;
+  final ValueChanged<int> onRemoveVideoFile;
+  final VoidCallback onRemoveAudioFile;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasAny = existingVideos.isNotEmpty ||
+        videoFiles.isNotEmpty ||
+        existingAudios.isNotEmpty ||
+        hasNewAudio;
+    if (!hasAny) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final media in existingVideos)
+            _RemovableMediaPill(
+              icon: Icons.videocam,
+              label: 'Saved video',
+              onRemove: () => onRemoveExisting(media),
+            ),
+          for (var i = 0; i < videoFiles.length; i++)
+            _RemovableMediaPill(
+              icon: Icons.videocam_outlined,
+              label: 'New video ${i + 1}',
+              onRemove: () => onRemoveVideoFile(i),
+            ),
+          for (final media in existingAudios)
+            _RemovableMediaPill(
+              icon: Icons.mic,
+              label: 'Saved audio',
+              onRemove: () => onRemoveExisting(media),
+            ),
+          if (hasNewAudio)
+            _RemovableMediaPill(
+              icon: Icons.mic_none,
+              label: 'New audio',
+              onRemove: onRemoveAudioFile,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RemovableMediaTile extends StatelessWidget {
+  const _RemovableMediaTile({required this.child, required this.onRemove});
+
+  final Widget child;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          DecoratedBox(
+            decoration:
+                BoxDecoration(color: AppTheme.primary.withValues(alpha: 0.08)),
+            child: child,
+          ),
+          Center(
+            child: IconButton.filled(
+              onPressed: onRemove,
+              style: IconButton.styleFrom(
+                  backgroundColor: Colors.black.withValues(alpha: 0.62),
+                  foregroundColor: Colors.white),
+              icon: const Icon(Icons.close),
+              tooltip: 'Remove media',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RemovableMediaPill extends StatelessWidget {
+  const _RemovableMediaPill({
+    required this.icon,
+    required this.label,
+    required this.onRemove,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      avatar: Icon(icon, size: 16, color: AppTheme.primary),
+      label: Text(label),
+      deleteIcon: const Icon(Icons.close),
+      onDeleted: onRemove,
+      side: BorderSide.none,
+      backgroundColor: Colors.white,
     );
   }
 }
@@ -1132,7 +1332,7 @@ class _MediaStatus extends StatelessWidget {
     }
     if (items.isEmpty) {
       return const Text(
-          'Add up to 10 images, 3 short videos, and one 10s audio note.',
+          'Add up to 10 images, 3 videos, and one audio note. Max 100 MB each.',
           style: TextStyle(color: AppTheme.textSecondary, fontSize: 12));
     }
     return Wrap(spacing: 8, runSpacing: 8, children: items);

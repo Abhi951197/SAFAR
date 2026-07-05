@@ -13,7 +13,9 @@ class ReminderSettingsScreen extends StatefulWidget {
 
 class _ReminderSettingsScreenState extends State<ReminderSettingsScreen> {
   bool _loading = true;
+  bool _testing = false;
   bool _enabled = false;
+  String? _diagnostic;
   TimeOfDay _time = const TimeOfDay(hour: 20, minute: 0);
   final _message = TextEditingController(text: ReminderService.defaultMessage);
 
@@ -38,6 +40,7 @@ class _ReminderSettingsScreenState extends State<ReminderSettingsScreen> {
       _message.text = settings.message;
       _loading = false;
     });
+    _refreshDiagnostic();
   }
 
   Future<void> _pickTime() async {
@@ -56,6 +59,31 @@ class _ReminderSettingsScreenState extends State<ReminderSettingsScreen> {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('Reminder updated.')));
       Navigator.of(context).pop();
+    }
+  }
+
+  Future<void> _refreshDiagnostic() async {
+    final diagnostic = await ReminderService.instance.diagnosticSummary();
+    if (mounted) setState(() => _diagnostic = diagnostic);
+  }
+
+  Future<void> _testNotification() async {
+    setState(() => _testing = true);
+    try {
+      await ReminderService.instance.showTestNotification();
+      await _refreshDiagnostic();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content:
+                Text('Test notification sent. Check notification shade.')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    } finally {
+      if (mounted) setState(() => _testing = false);
     }
   }
 
@@ -106,7 +134,24 @@ class _ReminderSettingsScreenState extends State<ReminderSettingsScreen> {
                         ),
                       ),
                     ),
+                    if (_diagnostic != null) ...[
+                      const SizedBox(height: 12),
+                      Text(_diagnostic!,
+                          style: const TextStyle(
+                              color: AppTheme.textSecondary,
+                              fontWeight: FontWeight.w700)),
+                    ],
                     const SizedBox(height: 22),
+                    OutlinedButton.icon(
+                      onPressed: _testing ? null : _testNotification,
+                      icon: _testing
+                          ? const SizedBox.square(
+                              dimension: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.notifications_active_outlined),
+                      label: const Text('Send Test Notification'),
+                    ),
+                    const SizedBox(height: 10),
                     ElevatedButton.icon(
                       onPressed: _save,
                       icon: const Icon(Icons.save_outlined),
