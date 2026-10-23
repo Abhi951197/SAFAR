@@ -6,9 +6,10 @@ import 'package:video_player/video_player.dart';
 
 import '../models/diary_entry.dart';
 import 'media_encryption_service.dart';
+import 'media_local_cache_io.dart';
 
 Future<void> setAudioSource(AudioPlayer player, EntryMedia media) async {
-  if (!media.encrypted) {
+  if (!media.encrypted && !await (await cachedMediaFile(media.url)).exists()) {
     await player.setUrl(media.url);
     return;
   }
@@ -17,7 +18,7 @@ Future<void> setAudioSource(AudioPlayer player, EntryMedia media) async {
 }
 
 Future<VideoPlayerController> createVideoController(EntryMedia media) async {
-  if (!media.encrypted) {
+  if (!media.encrypted && !await (await cachedMediaFile(media.url)).exists()) {
     return VideoPlayerController.networkUrl(Uri.parse(media.url));
   }
   final file = await _decryptedTempFile(media);

@@ -14,6 +14,7 @@ class DiaryRepository extends ChangeNotifier {
   DiaryRepository(this._api);
 
   final ApiClient _api;
+  VoidCallback? onDiaryChanged;
   ApiClient get api => _api;
   final _monthFormat = DateFormat('yyyy-MM');
   final _dayFormat = DateFormat('yyyy-MM-dd');
@@ -48,11 +49,15 @@ class DiaryRepository extends ChangeNotifier {
     final syncJson = prefs.getString(_syncKey);
 
     if (profileJson != null) {
-      currentUser = UserProfile.fromJson(jsonDecode(profileJson) as Map<String, dynamic>);
+      currentUser =
+          UserProfile.fromJson(jsonDecode(profileJson) as Map<String, dynamic>);
     }
     if (entriesJson != null) {
       final decoded = jsonDecode(entriesJson) as List<dynamic>;
-      entries = decoded.cast<Map<String, dynamic>>().map(DiaryEntry.fromJson).toList();
+      entries = decoded
+          .cast<Map<String, dynamic>>()
+          .map(DiaryEntry.fromJson)
+          .toList();
       _sortAndIndexEntries();
     }
     if (syncJson != null) {
@@ -87,19 +92,23 @@ class DiaryRepository extends ChangeNotifier {
     }
   }
 
-  Future<void> refreshMonth(DateTime month, {bool prefetchAdjacent = true}) async {
+  Future<void> refreshMonth(DateTime month,
+      {bool prefetchAdjacent = true}) async {
     final key = monthKey(month);
     if (!entriesByMonth.containsKey(key)) {
       entriesByMonth[key] = [];
       notifyListeners();
     }
     try {
-      final fetched = await _api.entries(startDate: _monthStart(month), endDate: _monthEnd(month));
+      final fetched = await _api.entries(
+          startDate: _monthStart(month), endDate: _monthEnd(month));
       _replaceMonth(key, fetched);
       await _saveCache();
       if (prefetchAdjacent) {
-        unawaitedRefreshMonth(DateTime(month.year, month.month - 1), prefetchAdjacent: false);
-        unawaitedRefreshMonth(DateTime(month.year, month.month + 1), prefetchAdjacent: false);
+        unawaitedRefreshMonth(DateTime(month.year, month.month - 1),
+            prefetchAdjacent: false);
+        unawaitedRefreshMonth(DateTime(month.year, month.month + 1),
+            prefetchAdjacent: false);
       }
     } catch (error) {
       errorMessage = error.toString();
@@ -129,14 +138,17 @@ class DiaryRepository extends ChangeNotifier {
     _upsertEntry(saved);
     await _saveCache();
     notifyListeners();
+    onDiaryChanged?.call();
     return saved;
   }
 
-  Future<DiaryEntry> updateEntry(String id, Map<String, dynamic> payload) async {
+  Future<DiaryEntry> updateEntry(
+      String id, Map<String, dynamic> payload) async {
     final saved = await _api.updateEntry(id, payload);
     _upsertEntry(saved);
     await _saveCache();
     notifyListeners();
+    onDiaryChanged?.call();
     return saved;
   }
 
@@ -147,6 +159,7 @@ class DiaryRepository extends ChangeNotifier {
     notifyListeners();
     try {
       await _api.deleteEntry(entry.id);
+      onDiaryChanged?.call();
     } catch (_) {
       entries = previousEntries;
       _sortAndIndexEntries();
@@ -174,7 +187,8 @@ class DiaryRepository extends ChangeNotifier {
     notifyListeners();
   }
 
-  String monthKey(DateTime month) => _monthFormat.format(DateTime(month.year, month.month));
+  String monthKey(DateTime month) =>
+      _monthFormat.format(DateTime(month.year, month.month));
 
   void _upsertEntry(DiaryEntry entry) {
     final index = entries.indexWhere((item) => item.id == entry.id);
@@ -208,7 +222,9 @@ class DiaryRepository extends ChangeNotifier {
     });
     entriesByMonth = {};
     for (final entry in entries) {
-      entriesByMonth.putIfAbsent(monthKey(entry.entryDate), () => []).add(entry);
+      entriesByMonth
+          .putIfAbsent(monthKey(entry.entryDate), () => [])
+          .add(entry);
     }
   }
 
@@ -218,7 +234,8 @@ class DiaryRepository extends ChangeNotifier {
     if (profile != null) {
       await prefs.setString(_profileKey, jsonEncode(profile.toJson()));
     }
-    await prefs.setString(_entriesKey, jsonEncode(entries.map((entry) => entry.toJson()).toList()));
+    await prefs.setString(_entriesKey,
+        jsonEncode(entries.map((entry) => entry.toJson()).toList()));
     final sync = lastSuccessfulSync;
     if (sync != null) {
       await prefs.setString(_syncKey, sync.toIso8601String());
@@ -227,5 +244,6 @@ class DiaryRepository extends ChangeNotifier {
 
   DateTime _monthStart(DateTime month) => DateTime(month.year, month.month);
 
-  DateTime _monthEnd(DateTime month) => DateTime(month.year, month.month + 1, 0);
+  DateTime _monthEnd(DateTime month) =>
+      DateTime(month.year, month.month + 1, 0);
 }

@@ -163,6 +163,48 @@ class RecoveryTests(unittest.TestCase):
         self.assertIn("Second version", versions)
         self.assertIsNone(self.db.get(DiaryEntry, entry_id))
 
+    def test_references_ownership_backlinks_and_snapshot_roundtrip(self):
+        from fastapi import HTTPException
+        from app.api.routes.entries import create_entry, update_entry, connections
+        from app.schemas.diary_entry import DiaryEntryCreate, DiaryEntryUpdate
+        from app.services.backups import export_user
+        from app.services.recovery import RecoveryArchive
+        self.restore()
+        user = self.db.scalar(select(User))
+        target = self.db.scalar(select(DiaryEntry))
+        linked = create_entry(DiaryEntryCreate(title="Looking back", content="Today", entry_type="full",
+            entry_date="2026-10-23", references=[{"target_entry_id": target.id, "note": "Where it started"}]), db=self.db, current_user=user)
+        self.assertEqual(linked.references[0].target_title, target.title)
+        self.assertEqual(connections(target.id, db=self.db, current_user=user)["mentioned_by"][0]["id"], linked.id)
+        exported = RecoveryArchive.model_validate(export_user(self.db, user))
+        self.assertEqual(next(e for e in exported.entries if e.id == linked.id).references[0].note, "Where it started")
+        other = User(auth_user_id=uuid4(), email="other@example.com")
+        self.db.add(other); self.db.flush()
+        foreign = DiaryEntry(user_id=other.id, title="Private", entry_type="full", entry_date=datetime.now().date())
+        self.db.add(foreign); self.db.commit()
+        for target_id in (foreign.id, linked.id):
+            with self.assertRaises(HTTPException):
+                update_entry(linked.id, DiaryEntryUpdate(references=[{"target_entry_id": target_id}]), db=self.db, current_user=user)
+            self.db.rollback()
+        update_entry(linked.id, DiaryEntryUpdate(content="Edited without links field"), db=self.db, current_user=user)
+        self.assertEqual(len(linked.references), 1)
+        update_entry(linked.id, DiaryEntryUpdate(references=[]), db=self.db, current_user=user)
+        self.assertEqual(connections(target.id, db=self.db, current_user=user)["mentioned_by"], [])
+
+    def test_explicit_restore_can_restore_same_backup_again_and_rejects_other_account(self):
+        from fastapi import HTTPException
+        from app.api.routes.backup import restore_diaries
+        from app.services.recovery import RecoveryArchive
+        self.restore()
+        user = self.db.scalar(select(User))
+        self.db.delete(self.db.scalar(select(DiaryEntry))); self.db.commit()
+        archive_model = RecoveryArchive.model_validate(self.source)
+        self.assertEqual(restore_diaries(archive_model, db=self.db, user=user)["inserted"], 1)
+        self.db.delete(self.db.scalar(select(DiaryEntry))); self.db.commit()
+        self.assertEqual(restore_diaries(archive_model, db=self.db, user=user)["inserted"], 1)
+        archive_model.user.auth_user_id = uuid4()
+        with self.assertRaises(HTTPException): restore_diaries(archive_model, db=self.db, user=user)
+
     def test_checksum_mismatch_does_not_count_as_verified(self):
         self.restore()
         snapshot = self.db.scalar(select(BackupSnapshot))

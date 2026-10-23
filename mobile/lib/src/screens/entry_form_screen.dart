@@ -51,6 +51,7 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
   final List<XFile> _videoFiles = [];
   XFile? _audioFile;
   List<EntryMedia> _existingMedia = [];
+  List<EntryReference> _references = [];
   bool _saving = false;
   bool _recording = false;
   String? _uploadLabel;
@@ -81,6 +82,7 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
       _mood = entry.mood;
       _energy = entry.energy ?? 5;
       _existingMedia = List<EntryMedia>.from(entry.media);
+      _references = List<EntryReference>.from(entry.references);
     } else if (!_isFull) {
       _title.text = 'Quick diary';
     }
@@ -445,6 +447,7 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
       final firstVideo = _firstMedia(orderedMedia, 'video');
       final firstAudio = _firstMedia(orderedMedia, 'audio');
       final payload = {
+        'references': _references.map((r) => r.toWriteJson()).toList(),
         'title': _title.text.trim(),
         'content': _isFull ? _content.text.trim() : null,
         'entry_type': widget.entryType,
@@ -498,6 +501,107 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
           _uploadProgress = null;
         });
       }
+    }
+  }
+
+  Future<void> _editReferenceNote(EntryReference ref) async {
+    final controller = TextEditingController(text: ref.note);
+    final note = await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+                title: const Text('Why is this connected?'),
+                content: TextField(
+                    controller: controller,
+                    maxLength: 240,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                        hintText: 'An optional note about this connection')),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel')),
+                  FilledButton(
+                      onPressed: () =>
+                          Navigator.pop(context, controller.text.trim()),
+                      child: const Text('Save note'))
+                ]));
+    if (note != null && mounted) {
+      setState(() {
+        final index = _references.indexOf(ref);
+        if (index >= 0) {
+          _references[index] = EntryReference(
+              id: ref.id,
+              targetEntryId: ref.targetEntryId,
+              targetTitle: ref.targetTitle,
+              targetDate: ref.targetDate,
+              note: note.isEmpty ? null : note);
+        }
+      });
+    }
+  }
+
+  Future<void> _pickReference() async {
+    await widget.repository.refreshAll(silent: true);
+    if (!mounted) return;
+    var query = '';
+    final picked = await showModalBottomSheet<DiaryEntry>(
+        context: context,
+        isScrollControlled: true,
+        builder: (context) => StatefulBuilder(builder: (context, update) {
+              final choices = widget.repository.entries
+                  .where((e) =>
+                      e.id != _initialEntry?.id &&
+                      !_references.any((r) => r.targetEntryId == e.id) &&
+                      ('${e.title} ${DateFormat('yyyy-MM-dd').format(e.entryDate)} ${e.preview}')
+                          .toLowerCase()
+                          .contains(query.toLowerCase()))
+                  .toList();
+              return SafeArea(
+                  child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                          20, 20, 20, MediaQuery.viewInsetsOf(context).bottom),
+                      child: SizedBox(
+                          height: MediaQuery.sizeOf(context).height * .7,
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Find a memory',
+                                    style:
+                                        Theme.of(context).textTheme.titleLarge),
+                                TextField(
+                                    autofocus: true,
+                                    decoration: const InputDecoration(
+                                        prefixIcon: Icon(Icons.search),
+                                        hintText:
+                                            'Search title, words or date (YYYY-MM-DD)'),
+                                    onChanged: (v) => update(() => query = v)),
+                                Expanded(
+                                    child: choices.isEmpty
+                                        ? const Center(
+                                            child: Text('No matching entries.'))
+                                        : ListView.builder(
+                                            itemCount: choices.length,
+                                            itemBuilder: (context, index) {
+                                              final entry = choices[index];
+                                              return ListTile(
+                                                  leading:
+                                                      const Icon(Icons.history),
+                                                  title: Text(entry.title),
+                                                  subtitle: Text(
+                                                      '${DateFormat.yMMMd().format(entry.entryDate)} · ${entry.preview}',
+                                                      maxLines: 2,
+                                                      overflow: TextOverflow
+                                                          .ellipsis),
+                                                  onTap: () => Navigator.pop(
+                                                      context, entry));
+                                            }))
+                              ]))));
+            }));
+    if (picked != null && mounted) {
+      setState(() => _references.add(EntryReference(
+          targetEntryId: picked.id,
+          targetTitle: picked.title,
+          targetDate: picked.entryDate)));
     }
   }
 
@@ -986,6 +1090,38 @@ class _EntryFormScreenState extends State<EntryFormScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
+                GlassPanel(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      Text('Connected memories',
+                          style: Theme.of(context).textTheme.titleMedium),
+                      const Text(
+                          'Link a previous entry to remember where this story began.'),
+                      for (final ref in _references)
+                        ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.history),
+                            title: Text(ref.targetTitle),
+                            subtitle: Text(
+                                '${DateFormat.yMMMd().format(ref.targetDate)}${ref.note == null ? '' : '\n${ref.note}'}'),
+                            onTap:
+                                _saving ? null : () => _editReferenceNote(ref),
+                            trailing: IconButton(
+                                tooltip: 'Remove link',
+                                icon: const Icon(Icons.close),
+                                onPressed: _saving
+                                    ? null
+                                    : () => setState(
+                                        () => _references.remove(ref)))),
+                      TextButton.icon(
+                          onPressed: _saving || _references.length >= 20
+                              ? null
+                              : _pickReference,
+                          icon: const Icon(Icons.add_link),
+                          label: const Text('Link a diary entry')),
+                    ])),
+                const SizedBox(height: 20),
                 ElevatedButton.icon(
                     onPressed: _saving ? null : _save,
                     icon: const Icon(Icons.check),

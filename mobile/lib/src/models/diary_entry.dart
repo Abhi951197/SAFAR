@@ -1,3 +1,28 @@
+class EntryReference {
+  const EntryReference(
+      {this.id,
+      this.targetEntryId,
+      required this.targetTitle,
+      required this.targetDate,
+      this.note});
+  final String? id, targetEntryId, note;
+  final String targetTitle;
+  final DateTime targetDate;
+  factory EntryReference.fromJson(Map<String, dynamic> j) => EntryReference(
+      id: j['id'] as String?,
+      targetEntryId: j['target_entry_id'] as String?,
+      targetTitle: j['target_title'] as String? ?? 'Diary entry',
+      targetDate: DateTime.parse(j['target_date'] as String),
+      note: j['note'] as String?);
+  Map<String, dynamic> toWriteJson() =>
+      {'id': id, 'target_entry_id': targetEntryId, 'note': note};
+  Map<String, dynamic> toJson() => {
+        ...toWriteJson(),
+        'target_title': targetTitle,
+        'target_date': targetDate.toIso8601String().substring(0, 10)
+      };
+}
+
 class EntryMedia {
   EntryMedia({
     this.id,
@@ -84,6 +109,7 @@ class DiaryEntry {
     this.videoPublicId,
     this.audioUrl,
     this.audioPublicId,
+    this.references = const [],
     List<EntryMedia>? media,
   }) : media = _mergedMedia(media, imageUrl, imagePublicId, videoUrl,
             videoPublicId, audioUrl, audioPublicId);
@@ -104,6 +130,7 @@ class DiaryEntry {
   final String? audioUrl;
   final String? audioPublicId;
   final List<EntryMedia> media;
+  final List<EntryReference> references;
   final DateTime entryDate;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -126,6 +153,10 @@ class DiaryEntry {
       videoPublicId: json['video_public_id'] as String?,
       audioUrl: json['audio_url'] as String?,
       audioPublicId: json['audio_public_id'] as String?,
+      references: (json['references'] as List? ?? [])
+          .map((j) =>
+              EntryReference.fromJson(Map<String, dynamic>.from(j as Map)))
+          .toList(),
       media: mediaJson
           .cast<Map<String, dynamic>>()
           .map(EntryMedia.fromJson)
@@ -153,6 +184,7 @@ class DiaryEntry {
       'video_public_id': videoPublicId,
       'audio_url': audioUrl,
       'audio_public_id': audioPublicId,
+      'references': references.map((r) => r.toJson()).toList(),
       'media': media.map((item) => item.toJson()).toList(),
       'entry_date': _dateOnly(entryDate),
       'created_at': createdAt.toIso8601String(),

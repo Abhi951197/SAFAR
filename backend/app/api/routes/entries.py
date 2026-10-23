@@ -10,6 +10,8 @@ from app.models.diary_entry import DiaryEntry, EntryMedia
 from app.models.user import User
 from app.schemas.diary_entry import DiaryEntryCreate, DiaryEntryRead, DiaryEntryUpdate, EntryMediaWrite
 from app.services.backups import queue_snapshot
+from app.services.entry_references import replace_references
+from app.models.entry_reference import EntryReference
 
 router = APIRouter()
 
@@ -17,7 +19,7 @@ router = APIRouter()
 def _get_entry_or_404(db: Session, entry_id: UUID, user_id: UUID) -> DiaryEntry:
     entry = db.scalar(
         select(DiaryEntry)
-        .options(selectinload(DiaryEntry.media))
+        .options(selectinload(DiaryEntry.media), selectinload(DiaryEntry.references))
         .where(DiaryEntry.id == entry_id, DiaryEntry.user_id == user_id)
     )
     if entry is None:
@@ -91,7 +93,7 @@ def list_entries(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[DiaryEntry]:
-    query = select(DiaryEntry).options(selectinload(DiaryEntry.media)).where(DiaryEntry.user_id == current_user.id)
+    query = select(DiaryEntry).options(selectinload(DiaryEntry.media), selectinload(DiaryEntry.references)).where(DiaryEntry.user_id == current_user.id)
     if start_date:
         query = query.where(DiaryEntry.entry_date >= start_date)
     if end_date:
@@ -109,11 +111,13 @@ def create_entry(
     current_user: User = Depends(get_current_user),
 ) -> DiaryEntry:
     media = _media_from_legacy(payload)
-    entry_data = payload.model_dump(exclude={"media"})
+    entry_data = payload.model_dump(exclude={"media", "references"})
     entry = DiaryEntry(user_id=current_user.id, **entry_data)
     _replace_media(entry, media)
     _sync_legacy_media_fields(entry)
     db.add(entry)
+    db.flush()
+    replace_references(db, entry, payload.references, current_user.id)
     queue_snapshot(db, current_user)
     db.commit()
     db.refresh(entry)
@@ -139,7 +143,7 @@ def update_entry(
     entry = _get_entry_or_404(db, entry_id, current_user.id)
     queue_snapshot(db, current_user)
     db.flush()
-    payload_data = payload.model_dump(exclude_unset=True, exclude={"media"})
+    payload_data = payload.model_dump(exclude_unset=True, exclude={"media", "references"})
     for key, value in payload_data.items():
         setattr(entry, key, value)
     if payload.media is not None:
@@ -149,6 +153,8 @@ def update_entry(
         entry.media = []
         _replace_media(entry, payload.media)
         _sync_legacy_media_fields(entry)
+    if payload.references is not None:
+        replace_references(db, entry, payload.references, current_user.id)
     queue_snapshot(db, current_user)
     db.commit()
     db.refresh(entry)
@@ -167,3 +173,12 @@ def delete_entry(
     db.delete(entry)
     queue_snapshot(db, current_user)
     db.commit()
+
+
+@router.get("/{entry_id}/connections")
+def connections(entry_id: UUID, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    entry = _get_entry_or_404(db, entry_id, current_user.id)
+    rows = db.execute(select(DiaryEntry, EntryReference.note).join(EntryReference, EntryReference.entry_id == DiaryEntry.id)
+        .where(EntryReference.target_entry_id == entry.id, DiaryEntry.user_id == current_user.id)
+        .order_by(DiaryEntry.entry_date.desc())).all()
+    return {"mentioned_by": [{"id": item.id, "title": item.title, "entry_date": item.entry_date, "note": note} for item,note in rows]}

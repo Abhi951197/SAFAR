@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/api_client.dart';
+import '../services/personal_backup_service.dart';
 import '../services/diary_repository.dart';
 import 'calendar_screen.dart';
 import 'create_entry_choice_screen.dart';
@@ -19,15 +20,19 @@ class TabsShell extends StatefulWidget {
 class _TabsShellState extends State<TabsShell> {
   int _index = 0;
   late final DiaryRepository _repository;
+  late final PersonalBackupService _backups;
 
   @override
   void initState() {
     super.initState();
     _repository = DiaryRepository(widget.api)..initialize();
+    _backups = PersonalBackupService(widget.api, _repository)..initialize();
+    _repository.onDiaryChanged = _backups.scheduleBackup;
   }
 
   @override
   void dispose() {
+    _backups.dispose();
     _repository.dispose();
     super.dispose();
   }
@@ -38,7 +43,11 @@ class _TabsShellState extends State<TabsShell> {
       HomeScreen(repository: _repository),
       CreateEntryChoiceScreen(api: widget.api, repository: _repository),
       CalendarScreen(repository: _repository),
-      ProfileScreen(api: widget.api, repository: _repository, onOpenCalendar: () => setState(() => _index = 2)),
+      ProfileScreen(
+          backups: _backups,
+          api: widget.api,
+          repository: _repository,
+          onOpenCalendar: () => setState(() => _index = 2)),
     ];
     return Scaffold(
       body: screens[_index],
@@ -48,10 +57,22 @@ class _TabsShellState extends State<TabsShell> {
         selectedIndex: _index,
         onDestinationSelected: (value) => setState(() => _index = value),
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),
-          NavigationDestination(icon: Icon(Icons.add_circle_outline), selectedIcon: Icon(Icons.add_circle), label: 'Add'),
-          NavigationDestination(icon: Icon(Icons.calendar_month_outlined), selectedIcon: Icon(Icons.calendar_month), label: 'Calendar'),
-          NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Profile'),
+          NavigationDestination(
+              icon: Icon(Icons.home_outlined),
+              selectedIcon: Icon(Icons.home),
+              label: 'Home'),
+          NavigationDestination(
+              icon: Icon(Icons.add_circle_outline),
+              selectedIcon: Icon(Icons.add_circle),
+              label: 'Add'),
+          NavigationDestination(
+              icon: Icon(Icons.calendar_month_outlined),
+              selectedIcon: Icon(Icons.calendar_month),
+              label: 'Calendar'),
+          NavigationDestination(
+              icon: Icon(Icons.person_outline),
+              selectedIcon: Icon(Icons.person),
+              label: 'Profile'),
         ],
       ),
     );

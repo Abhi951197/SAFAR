@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 from datetime import datetime, timezone
+from uuid import uuid5, NAMESPACE_URL
 from urllib.error import HTTPError
 from urllib.parse import quote, urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler
@@ -29,10 +30,25 @@ def encode_archive(payload: dict) -> bytes:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
 
 
+def _export_entry(entry: DiaryEntry) -> dict:
+    result = DiaryEntryRead.model_validate(entry).model_dump(mode="json")
+    # Older versions stored one attachment per type directly on the entry.
+    # Include those bytes in personal backups as well as the modern media list.
+    existing = {(item["media_type"], item["url"]) for item in result["media"]}
+    for kind in ("image", "video", "audio"):
+        url = result.get(f"{kind}_url")
+        if url and (kind, url) not in existing:
+            result["media"].append({"id": str(uuid5(NAMESPACE_URL, f"safar:{entry.id}:{kind}:{url}")),
+                "entry_id": str(entry.id), "media_type": kind, "url": url,
+                "public_id": result.get(f"{kind}_public_id"), "sort_order": len(result["media"]),
+                "encrypted": False, "created_at": result["created_at"]})
+    return result
+
+
 def export_user(db: Session, user: User) -> dict:
     db.flush()
     entries = db.scalars(
-        select(DiaryEntry).options(selectinload(DiaryEntry.media))
+        select(DiaryEntry).options(selectinload(DiaryEntry.media), selectinload(DiaryEntry.references))
         .where(DiaryEntry.user_id == user.id).order_by(DiaryEntry.id)
         .execution_options(populate_existing=True)
     ).all()
@@ -43,7 +59,7 @@ def export_user(db: Session, user: User) -> dict:
             "name": user.name, "avatar_url": user.avatar_url,
             "created_at": user.created_at, "updated_at": user.updated_at,
         }.items()},
-        "entries": [DiaryEntryRead.model_validate(entry).model_dump(mode="json") for entry in entries],
+        "entries": [_export_entry(entry) for entry in entries],
         "coverage": "diary text and media metadata; attachment bytes and device keys excluded",
     }
 

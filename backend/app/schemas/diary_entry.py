@@ -25,6 +25,22 @@ class EntryMediaRead(EntryMediaWrite):
     model_config = {"from_attributes": True}
 
 
+class EntryReferenceWrite(BaseModel):
+    id: UUID | None = None
+    target_entry_id: UUID | None = None
+    note: str | None = Field(default=None, max_length=240)
+
+
+class EntryReferenceRead(BaseModel):
+    id: UUID
+    entry_id: UUID
+    target_entry_id: UUID | None
+    target_title: str
+    target_date: date
+    note: str | None = None
+    model_config = {"from_attributes": True}
+
+
 class DiaryEntryBase(BaseModel):
     title: str = Field(min_length=1, max_length=160)
     content: str | None = None
@@ -52,7 +68,7 @@ class DiaryEntryBase(BaseModel):
 
 
 class DiaryEntryCreate(DiaryEntryBase):
-    pass
+    references: list[EntryReferenceWrite] = Field(default_factory=list, max_length=20)
 
 
 class DiaryEntryUpdate(BaseModel):
@@ -71,6 +87,7 @@ class DiaryEntryUpdate(BaseModel):
     audio_public_id: str | None = None
     media: list[EntryMediaWrite] | None = None
     entry_date: date | None = None
+    references: list[EntryReferenceWrite] | None = Field(default=None, max_length=20)
 
 
 class DiaryEntryRead(DiaryEntryBase):
@@ -79,5 +96,6 @@ class DiaryEntryRead(DiaryEntryBase):
     created_at: datetime
     updated_at: datetime
     media: list[EntryMediaRead] = Field(default_factory=list)
+    references: list[EntryReferenceRead] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}

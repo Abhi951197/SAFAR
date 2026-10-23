@@ -18,14 +18,6 @@ class EncryptedMediaImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!media.encrypted) {
-      return Image.network(
-        media.url,
-        width: double.infinity,
-        height: double.infinity,
-        fit: fit,
-      );
-    }
     return FutureBuilder<Uint8List>(
       future: MediaEncryptionService.instance.decryptMedia(media),
       builder: (context, snapshot) {

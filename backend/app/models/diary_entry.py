@@ -44,6 +44,10 @@ class DiaryEntry(Base):
         cascade="all, delete-orphan",
         order_by="EntryMedia.sort_order",
     )
+    references: Mapped[list["EntryReference"]] = relationship(
+        "EntryReference", foreign_keys="EntryReference.entry_id", cascade="all, delete-orphan",
+        order_by="EntryReference.target_date.desc()",
+    )
 
 
 class EntryMedia(Base):

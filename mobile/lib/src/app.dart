@@ -51,7 +51,7 @@ class _AuthGateState extends State<AuthGate> {
         if (session == null) {
           return const LoginScreen();
         }
-        return TabsShell(api: _api);
+        return TabsShell(key: ValueKey(session.user.id), api: _api);
       },
     );
   }

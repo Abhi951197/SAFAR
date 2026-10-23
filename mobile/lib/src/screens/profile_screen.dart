@@ -14,15 +14,19 @@ import '../widgets/app_chrome.dart';
 import '../widgets/state_views.dart';
 import 'filtered_entries_screen.dart';
 import 'reminder_settings_screen.dart';
+import 'backup_screen.dart';
+import '../services/personal_backup_service.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen(
       {required this.api,
+      required this.backups,
       required this.repository,
       required this.onOpenCalendar,
       super.key});
 
   final ApiClient api;
+  final PersonalBackupService backups;
   final DiaryRepository repository;
   final VoidCallback onOpenCalendar;
 
@@ -247,6 +251,14 @@ class _ProfileScreenState extends State<ProfileScreen>
                               MaterialPageRoute(
                                   builder: (_) =>
                                       const ReminderSettingsScreen()))),
+                      const Divider(height: 1),
+                      PanelListTile(
+                          leading: const Icon(Icons.backup_outlined),
+                          title: const Text('Backups & restore'),
+                          onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                  builder: (_) =>
+                                      BackupScreen(service: widget.backups)))),
                       const Divider(height: 1),
                       PanelListTile(
                           leading: const Icon(Icons.logout),

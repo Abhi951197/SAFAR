@@ -1,7 +1,7 @@
 name: safar
 description: Android-first journey journal with Supabase Auth and FastAPI backend.
 publish_to: "none"
-version: 1.0.0+1
+version: 1.1.0+2
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -26,6 +26,7 @@ dependencies:
   flutter_timezone: 5.1.0
   url_launcher: 6.3.1
   cryptography: 2.7.0
+  crypto: 3.0.7
   flutter_secure_storage: 9.2.4
   share_plus: 10.1.4
 

@@ -63,6 +63,8 @@ class EntryDetailScreen extends StatefulWidget {
 
 class _EntryDetailScreenState extends State<EntryDetailScreen> {
   late DiaryEntry _entry;
+  List<Map<String, dynamic>> _mentionedBy = [];
+  String? _connectionsError;
   bool _deleting = false;
   bool _summarizing = false;
 
@@ -70,7 +72,81 @@ class _EntryDetailScreenState extends State<EntryDetailScreen> {
   void initState() {
     super.initState();
     _entry = widget.entry;
+    _loadConnections();
   }
+
+  Future<void> _loadConnections() async {
+    try {
+      final items = await widget.api.connections(_entry.id);
+      if (mounted) {
+        setState(() {
+          _mentionedBy = items;
+          _connectionsError = null;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _connectionsError =
+            'Connections could not be loaded. Tap to retry.');
+      }
+    }
+  }
+
+  Future<void> _openReference(String id) async {
+    try {
+      final entry = await widget.api.entry(id);
+      if (!mounted) return;
+      await Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => EntryDetailScreen(
+              api: widget.api, repository: widget.repository, entry: entry)));
+      await _loadConnections();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text(
+                'This entry is unavailable. Refresh your diary and try again.')));
+      }
+    }
+  }
+
+  Widget _connections() =>
+      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (_entry.references.isNotEmpty) ...[
+          Text('Connected memories',
+              style: Theme.of(context).textTheme.titleLarge),
+          for (final ref in _entry.references)
+            Card(
+                child: ListTile(
+                    leading: Icon(ref.targetEntryId == null
+                        ? Icons.link_off
+                        : Icons.history),
+                    title: Text(ref.targetTitle),
+                    subtitle: Text(
+                        '${DateFormat.yMMMd().format(ref.targetDate)}${ref.targetEntryId == null ? ' · Entry deleted' : ''}${ref.note == null ? '' : '\n${ref.note}'}'),
+                    trailing: ref.targetEntryId == null
+                        ? null
+                        : const Icon(Icons.chevron_right),
+                    onTap: ref.targetEntryId == null
+                        ? null
+                        : () => _openReference(ref.targetEntryId!))),
+        ],
+        if (_mentionedBy.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          Text('Mentioned in', style: Theme.of(context).textTheme.titleLarge),
+          for (final item in _mentionedBy)
+            Card(
+                child: ListTile(
+                    leading: const Icon(Icons.link),
+                    title: Text(item['title'] as String),
+                    subtitle: Text(
+                        '${DateFormat.yMMMd().format(DateTime.parse(item['entry_date'] as String))}${item['note'] == null ? '' : '\n${item['note']}'}'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _openReference(item['id'] as String))),
+        ],
+        if (_connectionsError != null)
+          TextButton(
+              onPressed: _loadConnections, child: Text(_connectionsError!)),
+      ]);
 
   Future<void> _edit() async {
     final saved = await Navigator.of(context).push<DiaryEntry>(
@@ -81,7 +157,10 @@ class _EntryDetailScreenState extends State<EntryDetailScreen> {
               entryType: _entry.entryType,
               entry: _entry)),
     );
-    if (saved != null && mounted) setState(() => _entry = saved);
+    if (saved != null && mounted) {
+      setState(() => _entry = saved);
+      await _loadConnections();
+    }
   }
 
   Future<void> _delete() async {
@@ -249,6 +328,8 @@ class _EntryDetailScreenState extends State<EntryDetailScreen> {
                         value: _entry.challenge ?? '-'),
                   ],
                 )),
+              const SizedBox(height: 20),
+              _connections(),
             ],
           ),
         ),

@@ -32,9 +32,33 @@ class ApiClient {
     );
   }
 
+  Future<String> _accessToken() async {
+    final auth = Supabase.instance.client.auth;
+    var session = auth.currentSession;
+    if (session != null &&
+        (session.expiresAt ?? 0) <=
+            DateTime.now().millisecondsSinceEpoch ~/ 1000 + 60) {
+      session = (await auth.refreshSession()).session;
+    }
+    if (session == null) throw ApiException('Please log in again.');
+    return session.accessToken;
+  }
+
+  Future<Map<String, dynamic>> exportBackup() async => _decode(
+      await _httpClient.get(_uri('/backup/export'), headers: await _headers()));
+  Future<Map<String, dynamic>> restoreBackup(
+          Map<String, dynamic> archive) async =>
+      _decode(await _httpClient.post(_uri('/backup/restore'),
+          headers: await _headers(), body: jsonEncode(archive)));
+  Future<DiaryEntry> entry(String id) async => DiaryEntry.fromJson(_decode(
+      await _httpClient.get(_uri('/entries/$id'), headers: await _headers())));
+  Future<List<Map<String, dynamic>>> connections(String id) async =>
+      ((_decode(await _httpClient.get(_uri('/entries/$id/connections'),
+              headers: await _headers()))['mentioned_by']) as List)
+          .cast<Map<String, dynamic>>();
+
   Future<Map<String, String>> _headers() async {
-    final token = Supabase.instance.client.auth.currentSession?.accessToken;
-    if (token == null) throw ApiException('Please log in again.');
+    final token = await _accessToken();
     return {
       'Authorization': 'Bearer $token',
       'Content-Type': 'application/json',
@@ -126,8 +150,7 @@ class ApiClient {
     XFile file, {
     UploadProgressCallback? onProgress,
   }) async {
-    final token = Supabase.instance.client.auth.currentSession?.accessToken;
-    if (token == null) throw ApiException('Please log in again.');
+    final token = await _accessToken();
     final response = await _sendMultipart(
       path: '/upload/image',
       fieldName: 'image',
@@ -174,8 +197,7 @@ class ApiClient {
     required String contentType,
     UploadProgressCallback? onProgress,
   }) async {
-    final token = Supabase.instance.client.auth.currentSession?.accessToken;
-    if (token == null) throw ApiException('Please log in again.');
+    final token = await _accessToken();
     final response = await _sendMultipartBytes(
       path: '/upload/encrypted',
       fieldName: 'file',
@@ -199,8 +221,7 @@ class ApiClient {
     required MediaType mediaType,
     UploadProgressCallback? onProgress,
   }) async {
-    final token = Supabase.instance.client.auth.currentSession?.accessToken;
-    if (token == null) throw ApiException('Please log in again.');
+    final token = await _accessToken();
     final response = await _sendMultipart(
       path: path,
       fieldName: fieldName,
