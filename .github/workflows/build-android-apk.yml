@@ -42,14 +42,46 @@ jobs:
         working-directory: mobile
         run: flutter test --no-pub
 
+      - name: Prepare persistent release signing
+        working-directory: mobile
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: python3 tool/prepare_release_signing.py
+
       - name: Build release APK
         working-directory: mobile
+        env:
+          SAFAR_ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/mobile/android/app/safar-release.p12
+          SAFAR_ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          SAFAR_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          SAFAR_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: >
           flutter build apk --release
           --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }}
           --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
           --dart-define=GOOGLE_WEB_CLIENT_ID=33551217855-eo6g9c37peqhimofdk6ulcoh6tqsfj89.apps.googleusercontent.com
           --dart-define=API_BASE_URL=https://safar-hyez.onrender.com
+
+      - name: Verify persistent APK signing certificate
+        working-directory: mobile
+        run: |
+          python3 - <<'PYVERIFY'
+          import os, re, subprocess
+          from pathlib import Path
+          tools = list(Path(os.environ['ANDROID_HOME']).glob('build-tools/*/apksigner'))
+          if not tools:
+              raise SystemExit('Android apksigner is unavailable')
+          signer = max(tools, key=lambda p: tuple(int(n) for n in re.findall(r'\d+', p.parent.name)))
+          result = subprocess.run([str(signer), 'verify', '--print-certs', 'build/app/outputs/flutter-apk/app-release.apk'], check=True, capture_output=True, text=True)
+          match = re.search(r'Signer #1 certificate SHA-256 digest: ([0-9a-fA-F]+)', result.stdout)
+          expected = Path('android/release-cert.sha256').read_text().strip().lower()
+          if match is None or match.group(1).lower() != expected:
+              raise SystemExit('APK signing certificate does not match the persistent Safar release identity')
+          print('APK signature and persistent certificate verified.')
+          PYVERIFY
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

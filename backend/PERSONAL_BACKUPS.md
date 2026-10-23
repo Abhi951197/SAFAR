@@ -17,9 +17,22 @@ The app reuses Supabase's Google OAuth browser flow and `safar://login-callback`
 
 The client stores the temporary Google access token in Android secure storage and asks for reconnection after its usable session. This version deliberately does not promise unattended Drive uploads after Google permission expires. Phone backup remains available, and **Save a copy** can use Android's Drive document provider independently of Safar's OAuth API integration.
 
-## Existing Android signing limitation
+## Persistent release signing and existing-installation limitation
 
-The repository signs release builds with the runner's debug key. A fresh GitHub runner can generate a different signing certificate. Android requires the original signing key to update an installed app. **Do not uninstall an existing installation to bypass an update failure:** it may hold the only key for older encrypted attachments. Recover and reuse the original keystore before replacing that installation. Future production builds should use a stable release keystore stored in GitHub Actions secrets, never in the public repository.
+The earlier GitHub workflow generated debug signing keys on fresh runners. The 1.1.0 and 1.1.1 runner APK certificates differ, so Android cannot update between them in place. The old private signing key cannot be reconstructed from an APK. Do not uninstall an installation that holds media keys or unsaved data just to bypass this error.
+
+The delivered 1.1.1 APK has been re-signed with a persistent Safar release key and verified with the Android apksig library. It still cannot update an old debug-signed installation. The private release keystore and its passwords are in the owner's separately saved private backup/signing bundle; no private signing material is committed to the repository. Keep an offline copy of that bundle. It also contains the password for the separately downloadable server recovery archive.
+
+Before running future GitHub APK builds, open repository **Settings → Secrets and variables → Actions → New repository secret** and add these four names, copying their matching values from the private bundle:
+
+- `ANDROID_KEYSTORE_BASE64`
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
+
+The GitHub connection used for this repair cannot write Actions secrets, so the repository owner must complete this account configuration. The workflow now refuses release builds when these secrets are missing or the certificate differs from `mobile/android/release-cert.sha256`; it never falls back to another temporary debug key. Once configured, future APKs use the same certificate as the delivered release APK. The app's application ID remains unchanged.
+
+The signing configuration commit intentionally skips CI because these owner-only secrets are not configured yet. The preceding app commit passed Flutter analysis, all eight tests and a release APK build. The delivered binary's application entries were checked against that build before its new signature was verified. The signing preparation script was verified locally with the saved keystore; an end-to-end GitHub build with these secrets remains to be run after the owner configures them.
 
 ## Connected memories
 

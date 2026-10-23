@@ -4,6 +4,12 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val safarSigningVariables = listOf("SAFAR_ANDROID_KEYSTORE_PATH", "SAFAR_ANDROID_STORE_PASSWORD", "SAFAR_ANDROID_KEY_ALIAS", "SAFAR_ANDROID_KEY_PASSWORD")
+if (gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) } &&
+    safarSigningVariables.any { System.getenv(it).isNullOrBlank() }) {
+    throw GradleException("Configure persistent Safar release signing first. See backend/PERSONAL_BACKUPS.md. Never generate a new debug key for an app update.")
+}
+
 android {
     namespace = "com.abhishekpal.dailydiary"
     compileSdk = flutter.compileSdkVersion
@@ -25,11 +31,19 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("safarRelease") {
+            storeFile = System.getenv("SAFAR_ANDROID_KEYSTORE_PATH")?.let { file(it) }
+            storePassword = System.getenv("SAFAR_ANDROID_STORE_PASSWORD")
+            keyAlias = System.getenv("SAFAR_ANDROID_KEY_ALIAS")
+            keyPassword = System.getenv("SAFAR_ANDROID_KEY_PASSWORD")
+            storeType = "PKCS12"
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("safarRelease")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
