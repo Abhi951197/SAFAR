@@ -9,6 +9,7 @@ from app.api.deps import get_current_user, get_db
 from app.models.diary_entry import DiaryEntry, EntryMedia
 from app.models.user import User
 from app.schemas.diary_entry import DiaryEntryCreate, DiaryEntryRead, DiaryEntryUpdate, EntryMediaWrite
+from app.services.backups import queue_snapshot
 
 router = APIRouter()
 
@@ -113,6 +114,7 @@ def create_entry(
     _replace_media(entry, media)
     _sync_legacy_media_fields(entry)
     db.add(entry)
+    queue_snapshot(db, current_user)
     db.commit()
     db.refresh(entry)
     return entry
@@ -135,6 +137,8 @@ def update_entry(
     current_user: User = Depends(get_current_user),
 ) -> DiaryEntry:
     entry = _get_entry_or_404(db, entry_id, current_user.id)
+    queue_snapshot(db, current_user)
+    db.flush()
     payload_data = payload.model_dump(exclude_unset=True, exclude={"media"})
     for key, value in payload_data.items():
         setattr(entry, key, value)
@@ -145,6 +149,7 @@ def update_entry(
         entry.media = []
         _replace_media(entry, payload.media)
         _sync_legacy_media_fields(entry)
+    queue_snapshot(db, current_user)
     db.commit()
     db.refresh(entry)
     return entry
@@ -157,5 +162,8 @@ def delete_entry(
     current_user: User = Depends(get_current_user),
 ) -> None:
     entry = _get_entry_or_404(db, entry_id, current_user.id)
+    queue_snapshot(db, current_user)
+    db.flush()
     db.delete(entry)
+    queue_snapshot(db, current_user)
     db.commit()

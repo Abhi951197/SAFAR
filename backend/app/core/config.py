@@ -43,5 +43,13 @@ class Settings(BaseSettings):
     groq_api_key: str | None = None
     groq_text_model: str = "llama-3.1-8b-instant"
 
+    safar_backup_enabled: bool = False
+    safar_backup_url: str | None = None
+    safar_backup_key: str | None = None
+    safar_backup_bucket: str = "safar-diary-backups"
+    safar_backup_interval_seconds: int = Field(default=60, ge=10)
+    # One-time recovery data. Never put diary content in source control.
+    safar_recovery_archive_b64: str | None = None
+
 
 settings = Settings()
