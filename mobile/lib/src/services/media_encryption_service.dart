@@ -99,7 +99,7 @@ class MediaEncryptionService {
         await _storage.read(key: _keyName);
     if (value == null || base64Decode(value).length != 32) {
       throw Exception(
-          'This phone is missing a media key. Keep the original app installed and use its backup.');
+          'This attachment’s original key is unavailable on this installation. Backup can preserve the diary and locked file, but cannot unlock it without the original key.');
     }
     return value;
   }

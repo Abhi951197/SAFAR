@@ -5,6 +5,8 @@ import 'diary_repository.dart';
 
 class PersonalBackupService extends ChangeNotifier {
   PersonalBackupService(ApiClient api, DiaryRepository repository);
+  bool get waitingForDrive => false;
+  void cancelDriveConnection() {}
   bool get supported => false;
   bool get busy => false;
   bool get autoEnabled => false;

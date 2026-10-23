@@ -1,7 +1,7 @@
 name: safar
 description: Android-first journey journal with Supabase Auth and FastAPI backend.
 publish_to: "none"
-version: 1.1.0+2
+version: 1.1.1+3
 
 environment:
   sdk: ">=3.4.0 <4.0.0"

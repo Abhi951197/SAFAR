@@ -11,9 +11,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/backup_record.dart';
-import '../models/diary_entry.dart';
 import 'api_client.dart';
 import 'backup_codec_io.dart';
+import 'backup_media_staging_io.dart';
 import 'diary_repository.dart';
 import 'media_encryption_service.dart';
 import 'media_local_cache_io.dart';
@@ -28,6 +28,13 @@ class PersonalBackupService extends ChangeNotifier {
   static const _channel = MethodChannel('safar/backups');
   final _http = http.Client();
   Timer? _timer;
+  Completer<AuthState?>? _driveConsent;
+  bool get waitingForDrive => _driveConsent != null;
+  void cancelDriveConnection() {
+    final consent = _driveConsent;
+    if (consent != null && !consent.isCompleted) consent.complete(null);
+  }
+
   bool _disposed = false;
   bool busy = false, autoEnabled = false, driveEnabled = false;
   String phase = '';
@@ -72,7 +79,9 @@ class PersonalBackupService extends ChangeNotifier {
         await _storage.read(key: '${_prefix}_drive_expiry') ?? '');
     final folder = await _folder();
     await for (final item in folder.list()) {
-      if (item is File && item.path.endsWith('.partial')) { await item.delete(); }
+      if (item is File && item.path.endsWith('.partial')) {
+        await item.delete();
+      }
     }
     await _reloadLocal();
   }
@@ -154,113 +163,110 @@ class PersonalBackupService extends ChangeNotifier {
         final entries =
             (manifest['entries'] as List).cast<Map<String, dynamic>>();
         final media = <Map<String, dynamic>>[];
-        final keys = <String, String>{};
         for (final entry in entries) {
-          for (final item
-              in (entry['media'] as List).cast<Map<String, dynamic>>()) {
-            item['backup_file'] = 'media/${media.length}';
-            media.add(item);
-            if (item['encrypted'] == true) {
-              keys[item['url'] as String] = await MediaEncryptionService
-                  .instance
-                  .keyForBackup(EntryMedia.fromJson(item));
-            }
-          }
+          media.addAll((entry['media'] as List).cast<Map<String, dynamic>>());
         }
-        manifest['media_keys'] = keys;
-        manifest['created_at'] = DateTime.now().toUtc().toIso8601String();
-        manifest['full_media_backup'] = true;
-        manifest['coverage'] =
-            'Diary text, entry links, attachment bytes and media keys inside this encrypted archive';
-        final folder = await _folder();
-        final date = DateTime.now();
-        final name =
-            'Safar-${date.toUtc().toIso8601String().replaceAll(':', '-')}.safar';
-        final file = File('${folder.path}/$name');
-        Stream<List<int>> records() async* {
-          yield* BackupCodec.record(
-              'manifest.json', Stream.value(utf8.encode(jsonEncode(manifest))));
-          for (var index = 0; index < media.length; index++) {
+        final temporaryRoot = await getTemporaryDirectory();
+        final staged = await stageBackupMedia(
+          media: media,
+          directory: Directory(
+              '${temporaryRoot.path}/backup-stage-${DateTime.now().microsecondsSinceEpoch}'),
+          onProgress: (current, total) {
             _checkAccount();
-            final item = media[index];
-            _progress('Backing up media ${index + 1} of ${media.length}');
-            final url = item['url'] as String;
+            _progress('Preserving media $current of $total');
+          },
+          keyFor: MediaEncryptionService.instance.keyForBackup,
+          sourceFor: (url) async {
+            _checkAccount();
             final cached = await cachedMediaFile(url);
-            Stream<List<int>> source;
-            if (await cached.exists()) {
-              source = cached.openRead();
-            } else {
-              final uri = Uri.parse(url);
-              if (uri.scheme != 'https') {
-                throw StateError('A media link is not secure.');
-              }
-              final response = await _http
-                  .send(http.Request('GET', uri))
-                  .timeout(const Duration(seconds: 45));
-              if (response.statusCode != 200) {
-                throw StateError(
-                    'Media ${index + 1} could not be downloaded. No incomplete backup was saved.');
-              }
-              source = response.stream.timeout(const Duration(seconds: 60));
+            if (await cached.exists()) return cached.openRead();
+            final uri = Uri.parse(url);
+            if (uri.scheme != 'https') {
+              throw StateError('Insecure media address');
             }
-            if (item['encrypted'] == true) {
-              // Verify the original device key before declaring this a usable backup.
-              // A fresh installation may have a different key despite matching URLs.
-              final temporaryRoot = await getTemporaryDirectory();
-              final attachment = File(
-                  '${temporaryRoot.path}/backup-media-${DateTime.now().microsecondsSinceEpoch}.tmp');
-              try {
-                await source.pipe(attachment.openWrite());
-                final length = await attachment.length();
-                if (length <= 16) {
-                  throw const FormatException('Invalid encrypted attachment.');
-                }
-                final input = await attachment.open();
-                late List<int> mac;
-                try {
-                  await input.setPosition(length - 16);
-                  mac = await input.read(16);
-                } finally {
-                  await input.close();
-                }
-                try {
-                  await MediaEncryptionService.instance.verifyBackupMedia(
-                      attachment.openRead(0, length - 16),
-                      keys[url]!,
-                      item['encryption_nonce'] as String,
-                      mac);
-                } catch (_) {
-                  throw StateError(
-                      'This phone cannot unlock an older attachment. Keep the original app installed and restore a complete backup with its original media keys.');
-                }
-                yield* BackupCodec.record(
-                    item['backup_file'] as String, attachment.openRead());
-              } finally {
-                if (await attachment.exists()) await attachment.delete();
-              }
-            } else {
-              yield* BackupCodec.record(item['backup_file'] as String, source);
+            final response = await _http
+                .send(http.Request('GET', uri))
+                .timeout(const Duration(seconds: 45));
+            if (response.statusCode != 200) {
+              throw StateError('Attachment is unavailable');
             }
+            return response.stream.timeout(const Duration(seconds: 60));
+          },
+          verify: (attachment, key, nonce) async {
+            final length = await attachment.length();
+            if (length <= 16) {
+              throw const FormatException('Invalid encrypted attachment');
+            }
+            final input = await attachment.open();
+            late List<int> mac;
+            try {
+              await input.setPosition(length - 16);
+              mac = await input.read(16);
+            } finally {
+              await input.close();
+            }
+            await MediaEncryptionService.instance.verifyBackupMedia(
+                attachment.openRead(0, length - 16), key, nonce, mac);
+          },
+        );
+        late BackupRecord record;
+        late File file;
+        try {
+          _checkAccount();
+          manifest['backup_kind'] = 'personal-v2';
+          manifest['media_keys'] = staged.keys;
+          manifest['locked_media_count'] = staged.locked;
+          manifest['missing_media_count'] = staged.missing;
+          manifest['created_at'] = DateTime.now().toUtc().toIso8601String();
+          manifest['full_media_backup'] =
+              staged.missing == 0 && staged.locked == 0;
+          manifest['coverage'] = staged.missing == 0 && staged.locked == 0
+              ? 'Diary text, entry links, attachment bytes and verified media keys'
+              : 'Diary text and links, available attachment bytes; see locked and missing attachment counts';
+          final folder = await _folder();
+          final date = DateTime.now();
+          final name =
+              'Safar-${date.toUtc().toIso8601String().replaceAll(':', '-')}.safar';
+          file = File('${folder.path}/$name');
+          Stream<List<int>> records() async* {
+            yield* BackupCodec.record('manifest.json',
+                Stream.value(utf8.encode(jsonEncode(manifest))));
+            for (final item in staged.files.entries) {
+              _checkAccount();
+              yield* BackupCodec.record(item.key, item.value.openRead());
+            }
+            yield BackupCodec.lengthBytes(0);
           }
-          yield BackupCodec.lengthBytes(0);
-        }
 
-        await BackupCodec.write(file, password, records());
-        final record = BackupRecord(
-            path: file.path,
-            name: name,
-            createdAt: date,
-            bytes: await file.length(),
-            entries: entries.length,
-            media: media.length);
+          _progress('Encrypting your backup');
+          await BackupCodec.write(file, password, records());
+          record = BackupRecord(
+              path: file.path,
+              name: name,
+              createdAt: date,
+              bytes: await file.length(),
+              entries: entries.length,
+              media: media.length,
+              lockedMedia: staged.locked,
+              missingMedia: staged.missing);
+          if (staged.locked > 0 || staged.missing > 0) {
+            warning =
+                'Diary saved. ${staged.locked} attachments preserved as locked files; ${staged.missing} attachments could not be downloaded. Lost media keys cannot be recreated by a new backup.';
+          }
+        } finally {
+          await staged.close();
+        }
         await File('${file.path}.meta.json')
             .writeAsString(jsonEncode(record.toJson()), flush: true);
         if (remember) {
           await _storage.write(key: '${_prefix}_password', value: password);
         }
         await _reloadLocal();
-        // Keep three completed phone archives; never delete the previous backup on failure.
-        for (final old in localBackups.skip(3)) {
+        // Incomplete coverage never removes an older backup that has all media keys.
+        final retentionCandidates = record.lockedMedia > 0 || record.missingMedia > 0
+          ? localBackups.where((old) => old.lockedMedia > 0 || old.missingMedia > 0)
+          : localBackups;
+        for (final old in retentionCandidates.skip(3)) {
           await File(old.path).delete();
           final meta = File('${old.path}.meta.json');
           if (await meta.exists()) await meta.delete();
@@ -270,7 +276,8 @@ class PersonalBackupService extends ChangeNotifier {
           try {
             await _uploadDrive(record);
           } catch (e) {
-            warning = 'Saved on this phone. Google Drive: $e';
+            warning =
+                '${warning == null ? '' : '${warning!}\n'}Saved on this phone. Google Drive: $e';
           }
         }
         return record;
@@ -284,17 +291,37 @@ class PersonalBackupService extends ChangeNotifier {
   Future<void> connectDrive() => _run(() async {
         _progress('Waiting for Google Drive permission');
         final auth = Supabase.instance.client.auth;
-        final completed = auth.onAuthStateChange.firstWhere((event) =>
-            event.event == AuthChangeEvent.signedIn &&
-            event.session?.providerToken != null);
-        await auth.signInWithOAuth(OAuthProvider.google,
-            scopes: 'https://www.googleapis.com/auth/drive.file',
-            redirectTo: 'safar://login-callback',
-            queryParams: {
-              'prompt': 'consent',
-              'login_hint': auth.currentUser?.email ?? ''
-            });
-        final event = await completed.timeout(const Duration(minutes: 3));
+        final consent = Completer<AuthState?>();
+        _driveConsent = consent;
+        _notify();
+        final subscription = auth.onAuthStateChange.listen((event) {
+          if (event.event == AuthChangeEvent.signedIn &&
+              event.session?.providerToken != null &&
+              !consent.isCompleted) {
+            consent.complete(event);
+          }
+        });
+        late AuthState event;
+        try {
+          await auth.signInWithOAuth(OAuthProvider.google,
+              scopes: 'https://www.googleapis.com/auth/drive.file',
+              redirectTo: 'safar://login-callback',
+              queryParams: {
+                'prompt': 'consent',
+                'login_hint': auth.currentUser?.email ?? ''
+              });
+          final result = await consent.future
+              .timeout(const Duration(minutes: 2), onTimeout: () => null);
+          if (result == null) {
+            throw StateError(
+                'Drive connection was not completed. If Google says the app is being tested, add this account under Google Cloud → Google Auth Platform → Audience → Test users. Or use Save backup to Drive / Files.');
+          }
+          event = result;
+        } finally {
+          await subscription.cancel();
+          _driveConsent = null;
+          _notify();
+        }
         _checkAccount();
         final token = event.session!.providerToken!;
         final profile = await _http.get(
@@ -519,9 +546,10 @@ class PersonalBackupService extends ChangeNotifier {
     try {
       final manifest = opened.manifest;
       if ((manifest['user'] as Map)['auth_user_id'] != _userId ||
-          manifest['full_media_backup'] != true) {
+          (manifest['full_media_backup'] != true &&
+              manifest['backup_kind'] != 'personal-v2')) {
         throw StateError(
-            'Use the same Safar account that created this complete backup.');
+            'Use the same Safar account that created this backup.');
       }
       final entries =
           (manifest['entries'] as List).cast<Map<String, dynamic>>();
@@ -530,6 +558,10 @@ class PersonalBackupService extends ChangeNotifier {
       for (final entry in entries) {
         for (final item
             in (entry['media'] as List).cast<Map<String, dynamic>>()) {
+          if (item['backup_missing'] == true &&
+              manifest['backup_kind'] == 'personal-v2') {
+            continue;
+          }
           final path = item['backup_file'] as String;
           if (!expectedFiles.add(path) || !opened.files.containsKey(path)) {
             throw const FormatException('Backup media is incomplete.');
@@ -551,19 +583,42 @@ class PersonalBackupService extends ChangeNotifier {
           index++;
           _progress('Restoring media $index of ${expectedFiles.length}');
           final media = Map<String, dynamic>.from(original);
+          if (media['backup_missing'] == true &&
+              manifest['backup_kind'] == 'personal-v2') {
+            for (final field in [
+              'backup_missing',
+              'backup_issue',
+              'backup_locked',
+              'backup_file'
+            ]) {
+              media.remove(field);
+            }
+            updatedMedia.add(media);
+            continue;
+          }
           final raw = await opened.files[media['backup_file']]!.readAsBytes();
           Uint8List clear = raw;
+          var locked = false;
           if (media['encrypted'] == true) {
             final key = keys[media['url']];
             if (key == null) {
-              throw const FormatException('A backup media key is missing.');
+              if (manifest['backup_kind'] != 'personal-v2' ||
+                  media['backup_locked'] != true) {
+                throw const FormatException('A backup media key is missing.');
+              }
+              locked = true;
+            } else {
+              clear = await MediaEncryptionService.instance.decryptBackupMedia(
+                  raw, key, media['encryption_nonce'] as String);
             }
-            clear = await MediaEncryptionService.instance.decryptBackupMedia(
-                raw, key, media['encryption_nonce'] as String);
           }
           if (missing) {
-            final encrypted =
-                await MediaEncryptionService.instance.encrypt(clear);
+            final encrypted = locked
+                ? EncryptedMediaPayload(
+                    bytes: raw,
+                    nonce: media['encryption_nonce'] as String,
+                    version: media['encryption_version'] as int? ?? 1)
+                : await MediaEncryptionService.instance.encrypt(clear);
             final uploaded = await api.uploadEncryptedMedia(
                 bytes: encrypted.bytes,
                 filename: 'restored-${media['id']}.bin',
@@ -578,7 +633,14 @@ class PersonalBackupService extends ChangeNotifier {
               'encryption_version': encrypted.version
             });
           }
-          media.remove('backup_file');
+          for (final field in [
+            'backup_missing',
+            'backup_issue',
+            'backup_locked',
+            'backup_file'
+          ]) {
+            media.remove(field);
+          }
           updatedMedia.add(media);
         }
         if (missing) {
@@ -606,12 +668,19 @@ class PersonalBackupService extends ChangeNotifier {
         for (final item
             in (entry['media'] as List).cast<Map<String, dynamic>>()) {
           final url = item['url'] as String;
+          if (item['backup_missing'] == true) continue;
           await cacheMediaFile(url, opened.files[item['backup_file']]!.path);
-          if (item['encrypted'] == true) {
+          if (item['encrypted'] == true && keys.containsKey(url)) {
             await MediaEncryptionService.instance
                 .rememberRestoredKey(url, keys[url]!);
           }
         }
+      }
+      final lockedCount = manifest['locked_media_count'] as int? ?? 0;
+      final missingCount = manifest['missing_media_count'] as int? ?? 0;
+      if (lockedCount > 0 || missingCount > 0) {
+        warning =
+            'Diary restored. $lockedCount attachments remain locked without their original key; $missingCount attachments were unavailable in this backup.';
       }
       await repository.refreshAll();
       return result['inserted'] as int;
@@ -622,6 +691,7 @@ class PersonalBackupService extends ChangeNotifier {
 
   @override
   void dispose() {
+    cancelDriveConnection();
     _disposed = true;
     _timer?.cancel();
     _http.close();
